@@ -80,8 +80,8 @@ Q1. [answer]
 Q2. [answer]
 Q3. [answer]
 Rules:
-- Use "Q1." "Q2." "Q3." etc — NOT "1." "2." "3."
-- Final answer ONLY — no working steps, no explanation
+- Format EVERY answer exactly like this: "Q1) " "Q2) " "Q3) " with a closing bracket
+- Final answer ONLY — no working steps, no explanation  
 - Use the same inline LaTeX $...$ formatting
 - One answer per line` : ''}
 
