@@ -1,42 +1,12 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { Document, Packer, Paragraph, TextRun } from 'docx'
 
-
 const DIFFICULTY_LABELS = {
   'easy': 'easy only — suitable for students just learning the concept',
   'mixed-easy': 'mostly easy (70% easy, 30% medium)',
   'mixed': 'even mix of easy, medium, and hard',
   'mixed-hard': 'mostly hard (30% medium, 70% hard)',
   'hard': 'hard exam-level questions only',
-}
-
-async function parseFormData(req) {
-  const { Readable } = await import('stream')
-  const busboy = (await import('busboy')).default
-  const contentType = req.headers.get('content-type')
-
-  return new Promise((resolve, reject) => {
-    const fields = {}
-    let fileBuffer = null
-    let fileMime = null
-    let fileName = null
-
-    const bb = busboy({ headers: { 'content-type': contentType } })
-
-    bb.on('field', (name, val) => { fields[name] = val })
-    bb.on('file', (name, stream, info) => {
-      fileMime = info.mimeType
-      fileName = info.filename
-      const chunks = []
-      stream.on('data', chunk => chunks.push(chunk))
-      stream.on('end', () => { fileBuffer = Buffer.concat(chunks) })
-    })
-    bb.on('finish', () => resolve({ fields, fileBuffer, fileMime, fileName }))
-    bb.on('error', reject)
-
-    const nodeStream = Readable.fromWeb(req.body)
-    nodeStream.pipe(bb)
-  })
 }
 
 function buildDocx(questionsText, level, topic) {
@@ -79,24 +49,34 @@ function buildDocx(questionsText, level, topic) {
 
 export async function POST(req) {
   try {
-    const { fields, fileBuffer, fileMime } = await parseFormData(req)
-    const { level, count, difficulty, extra, description } = fields
+    const formData = await req.formData()
+
+    const level = formData.get('level') || 'O-Level A Math'
+    const count = formData.get('count') || '10'
+    const difficulty = formData.get('difficulty') || 'mixed'
+    const extra = formData.get('extra') || ''
+    const description = formData.get('description') || ''
+    const file = formData.get('file')
 
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
     const messageContent = []
 
-    if (fileBuffer && fileMime) {
-      if (fileMime.startsWith('image/')) {
-        const validMime = ['image/jpeg','image/png','image/gif','image/webp'].includes(fileMime)
-          ? fileMime : 'image/jpeg'
+    if (file && file.size > 0) {
+      const arrayBuffer = await file.arrayBuffer()
+      const base64 = Buffer.from(arrayBuffer).toString('base64')
+      const mime = file.type
+
+      if (mime.startsWith('image/')) {
+        const validMime = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mime)
+          ? mime : 'image/jpeg'
         messageContent.push({
           type: 'image',
-          source: { type: 'base64', media_type: validMime, data: fileBuffer.toString('base64') }
+          source: { type: 'base64', media_type: validMime, data: base64 }
         })
-      } else if (fileMime === 'application/pdf') {
+      } else if (mime === 'application/pdf') {
         messageContent.push({
           type: 'document',
-          source: { type: 'base64', media_type: 'application/pdf', data: fileBuffer.toString('base64') }
+          source: { type: 'base64', media_type: 'application/pdf', data: base64 }
         })
       }
     }
