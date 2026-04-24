@@ -1,8 +1,8 @@
 FROM node:20-slim
 
-# Install pandoc
 RUN apt-get update && apt-get install -y \
     pandoc \
+    python3 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
