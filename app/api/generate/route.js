@@ -145,30 +145,43 @@ def repack(src_dir, output_path):
                 arcname = os.path.relpath(filepath, src_dir)
                 zout.write(filepath, arcname)
 
-def fix_font_and_spacing(content):
-    content = re.sub(r'<w:sz w:val="\\d+"/>', '<w:sz w:val="28"/>', content)
-    content = re.sub(r'<w:szCs w:val="\\d+"/>', '<w:szCs w:val="28"/>', content)
+def fix_styles(content):
+    # Fix font size in styles.xml: 24 (12pt) -> 28 (14pt), handle optional spaces
+    content = re.sub(r'<w:sz w:val="24"\\s*/>', '<w:sz w:val="28"/>', content)
+    content = re.sub(r'<w:szCs w:val="24"\\s*/>', '<w:szCs w:val="28"/>', content)
+    return content
+
+def fix_spacing(content):
     def replace_spacing(m):
         ppr = m.group(0)
         ppr = re.sub(r'<w:spacing[^/]*/>', '', ppr)
         ppr = re.sub(r'<w:spacing[^>]*>.*?</w:spacing>', '', ppr, flags=re.DOTALL)
         ppr = ppr.replace('</w:pPr>', '<w:spacing w:after="360"/></w:pPr>')
         return ppr
-    content = re.sub(r'<w:pPr>.*?</w:pPr>', replace_spacing, content, flags=re.DOTALL)
-    return content
+    return re.sub(r'<w:pPr>.*?</w:pPr>', replace_spacing, content, flags=re.DOTALL)
 
-q_dir = '/tmp/wq_${id}'
-extract('${docxQPath}', q_dir)
+def process_docx(docx_path):
+    dir_path = docx_path + '_dir'
+    extract(docx_path, dir_path)
+
+    styles_path = os.path.join(dir_path, 'word', 'styles.xml')
+    write_xml(styles_path, fix_styles(read_xml(styles_path)))
+
+    doc_path = os.path.join(dir_path, 'word', 'document.xml')
+    write_xml(doc_path, fix_spacing(read_xml(doc_path)))
+
+    return dir_path
+
+q_dir = process_docx('${docxQPath}')
 q_doc = os.path.join(q_dir, 'word', 'document.xml')
-q_content = fix_font_and_spacing(read_xml(q_doc))
+q_content = read_xml(q_doc)
 
 has_answers = os.path.exists('${docxAPath}')
 
 if has_answers:
-    a_dir = '/tmp/wa_${id}'
-    extract('${docxAPath}', a_dir)
+    a_dir = process_docx('${docxAPath}')
     a_doc = os.path.join(a_dir, 'word', 'document.xml')
-    a_content = fix_font_and_spacing(read_xml(a_doc))
+    a_content = read_xml(a_doc)
     a_body = re.search(r'<w:body>(.*)</w:body>', a_content, re.DOTALL)
     a_body_content = a_body.group(1).strip() if a_body else ''
     a_body_content = re.sub(r'<w:sectPr>.*?</w:sectPr>', '', a_body_content, flags=re.DOTALL).strip()
