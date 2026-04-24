@@ -63,7 +63,7 @@ OUTPUT FORMAT — Markdown with LaTeX math. Follow these rules exactly:
 4. For fractions use \\dfrac{numerator}{denominator} e.g. $\\dfrac{x+1}{2}$
 5. For square roots use \\sqrt{...}
 6. For powers use ^{...} e.g. x^{2}, (2x+1)^{3}
-7. For whole fraction raised to a power: ${'{'}\\left(\\dfrac{a}{b}\\right)^{2}{'}'}
+7. For whole fraction raised to a power: {\\left(\\dfrac{a}{b}\\right)^{2}}
 8. BRACKET NESTING ORDER — innermost to outermost: ( ) then [ ] then { }
    - Use \\left( \\right) for innermost brackets
    - Use \\left[ \\right] for next level
@@ -73,13 +73,12 @@ OUTPUT FORMAT — Markdown with LaTeX math. Follow these rules exactly:
 11. Do NOT include answers in the questions section.
 12. Output ONLY the numbered questions in Markdown+LaTeX — no preamble, no headers, no explanation.
 
-${includeAnswers ? `AFTER all ${count} questions, add this EXACTLY on its own line:
-\\newpage
-## Answer Key
-Then list answers numbered 1 to ${count}. Rules for answers:
+${includeAnswers ? `AFTER all ${count} questions, output the following marker on its own line with nothing before or after it:
+ANSWER_KEY_START
+Then immediately list answers numbered 1 to ${count}. Rules:
 - Final answer ONLY — no working steps, no explanation
 - Use the same inline LaTeX $...$ formatting
-- Keep each answer on one line` : ''}`
+- One answer per line` : ''}`
 
     const userText = description
       ? `${description}\n\nGenerate ${count} questions as described.`
@@ -97,73 +96,106 @@ Then list answers numbered 1 to ${count}. Rules for answers:
     const markdownText = response.content.find(b => b.type === 'text')?.text || ''
     if (!markdownText) throw new Error('No questions generated')
 
-    const fullMarkdown = `# ${level}\n\n${markdownText}`
+    let questionsSection = markdownText
+    let answersSection = ''
+
+    if (includeAnswers && markdownText.includes('ANSWER_KEY_START')) {
+      const parts = markdownText.split('ANSWER_KEY_START')
+      questionsSection = parts[0].trim()
+      answersSection = parts[1] ? parts[1].trim() : ''
+    }
+
+    const questionsMarkdown = `# ${level}\n\n${questionsSection}`
+    const answersMarkdown = answersSection ? `# Answer Key\n\n${answersSection}` : ''
 
     const id = Date.now()
-    const mdPath = join(tmpdir(), `worksheet_${id}.md`)
-    const docxPath = join(tmpdir(), `worksheet_${id}.docx`)
-    const docxFinalPath = join(tmpdir(), `worksheet_final_${id}.docx`)
-    const pyPath = join(tmpdir(), `fix_spacing_${id}.py`)
+    const mdQPath = join(tmpdir(), `wq_${id}.md`)
+    const mdAPath = join(tmpdir(), `wa_${id}.md`)
+    const docxQPath = join(tmpdir(), `wq_${id}.docx`)
+    const docxAPath = join(tmpdir(), `wa_${id}.docx`)
+    const docxFinalPath = join(tmpdir(), `wfinal_${id}.docx`)
+    const pyPath = join(tmpdir(), `fix_${id}.py`)
 
-    writeFileSync(mdPath, fullMarkdown, 'utf8')
+    writeFileSync(mdQPath, questionsMarkdown, 'utf8')
+    await execAsync(`pandoc "${mdQPath}" -o "${docxQPath}" --mathml`)
 
-    // Step 1: pandoc converts markdown to docx
-    await execAsync(`pandoc "${mdPath}" -o "${docxPath}" --mathml`)
+    if (answersMarkdown) {
+      writeFileSync(mdAPath, answersMarkdown, 'utf8')
+      await execAsync(`pandoc "${mdAPath}" -o "${docxAPath}" --mathml`)
+    }
 
-    // Step 2: Python post-processor fixes spacing (360 twips = 0.25 inch)
     const pyScript = `
 import zipfile, shutil, os, re
 
-unzip_dir = '/tmp/docx_${id}'
-if os.path.exists(unzip_dir):
-    shutil.rmtree(unzip_dir)
-with zipfile.ZipFile('${docxPath}', 'r') as z:
-    z.extractall(unzip_dir)
+def extract(src, dest):
+    if os.path.exists(dest): shutil.rmtree(dest)
+    with zipfile.ZipFile(src, 'r') as z: z.extractall(dest)
 
-doc_path = os.path.join(unzip_dir, 'word', 'document.xml')
-with open(doc_path, 'r', encoding='utf-8') as f:
-    content = f.read()
+def read_xml(path):
+    with open(path, 'r', encoding='utf-8') as f: return f.read()
 
-def replace_spacing(m):
-    ppr = m.group(0)
-    ppr = re.sub(r'<w:spacing[^/]*/>', '', ppr)
-    ppr = re.sub(r'<w:spacing[^>]*>.*?</w:spacing>', '', ppr, flags=re.DOTALL)
-    ppr = ppr.replace('</w:pPr>', '<w:spacing w:after="360"/></w:pPr>')
-    return ppr
+def write_xml(path, content):
+    with open(path, 'w', encoding='utf-8') as f: f.write(content)
 
-content = re.sub(r'<w:pPr>.*?</w:pPr>', replace_spacing, content, flags=re.DOTALL)
+def repack(src_dir, output_path):
+    with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zout:
+        for root, dirs, files in os.walk(src_dir):
+            for file in files:
+                filepath = os.path.join(root, file)
+                arcname = os.path.relpath(filepath, src_dir)
+                zout.write(filepath, arcname)
 
-with open(doc_path, 'w', encoding='utf-8') as f:
-    f.write(content)
+def fix_font_and_spacing(content):
+    content = re.sub(r'<w:sz w:val="\\d+"/>', '<w:sz w:val="28"/>', content)
+    content = re.sub(r'<w:szCs w:val="\\d+"/>', '<w:szCs w:val="28"/>', content)
+    def replace_spacing(m):
+        ppr = m.group(0)
+        ppr = re.sub(r'<w:spacing[^/]*/>', '', ppr)
+        ppr = re.sub(r'<w:spacing[^>]*>.*?</w:spacing>', '', ppr, flags=re.DOTALL)
+        ppr = ppr.replace('</w:pPr>', '<w:spacing w:after="360"/></w:pPr>')
+        return ppr
+    content = re.sub(r'<w:pPr>.*?</w:pPr>', replace_spacing, content, flags=re.DOTALL)
+    return content
 
-with zipfile.ZipFile('${docxFinalPath}', 'w', zipfile.ZIP_DEFLATED) as zout:
-    for root, dirs, files in os.walk(unzip_dir):
-        for file in files:
-            filepath = os.path.join(root, file)
-            arcname = os.path.relpath(filepath, unzip_dir)
-            zout.write(filepath, arcname)
+q_dir = '/tmp/wq_${id}'
+extract('${docxQPath}', q_dir)
+q_doc = os.path.join(q_dir, 'word', 'document.xml')
+q_content = fix_font_and_spacing(read_xml(q_doc))
 
-shutil.rmtree(unzip_dir)
-print('spacing done')
+has_answers = os.path.exists('${docxAPath}')
+
+if has_answers:
+    a_dir = '/tmp/wa_${id}'
+    extract('${docxAPath}', a_dir)
+    a_doc = os.path.join(a_dir, 'word', 'document.xml')
+    a_content = fix_font_and_spacing(read_xml(a_doc))
+    a_body = re.search(r'<w:body>(.*)</w:body>', a_content, re.DOTALL)
+    a_body_content = a_body.group(1).strip() if a_body else ''
+    a_body_content = re.sub(r'<w:sectPr>.*?</w:sectPr>', '', a_body_content, flags=re.DOTALL).strip()
+    page_break = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>'
+    q_content = q_content.replace('</w:body>', f'{page_break}{a_body_content}</w:body>')
+    shutil.rmtree(a_dir)
+
+write_xml(q_doc, q_content)
+repack(q_dir, '${docxFinalPath}')
+shutil.rmtree(q_dir)
+print('done')
 `
+
     writeFileSync(pyPath, pyScript, 'utf8')
     await execAsync(`python3 "${pyPath}"`)
 
     const buffer = readFileSync(docxFinalPath)
 
-    // Cleanup
     try {
-      unlinkSync(mdPath)
-      unlinkSync(docxPath)
-      unlinkSync(docxFinalPath)
-      unlinkSync(pyPath)
+      [mdQPath, mdAPath, docxQPath, docxAPath, docxFinalPath, pyPath].forEach(f => { try { unlinkSync(f) } catch {} })
     } catch {}
 
     return new Response(buffer, {
       status: 200,
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'Content-Disposition': `attachment; filename="${level.replace(/\s+/g,'-')}_Worksheet.docx"`,
+        'Content-Disposition': `attachment; filename="${level.replace(/\s+/g, '-')}_Worksheet.docx"`,
       }
     })
 
