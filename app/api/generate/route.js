@@ -75,9 +75,12 @@ OUTPUT FORMAT — Markdown with LaTeX math. Follow these rules exactly:
 
 ${includeAnswers ? `AFTER all ${count} questions, output the following marker on its own line with nothing before or after it:
 ANSWER_KEY_START
-Then immediately list answers. Rules:
-- Start numbering from 1 again — use this exact format: "1. ", "2. ", "3. " etc
-- Do NOT continue numbering from the questions — always reset to 1
+Then immediately list answers using this EXACT format:
+Q1. [answer]
+Q2. [answer]
+Q3. [answer]
+Rules:
+- Use "Q1." "Q2." "Q3." etc — NOT "1." "2." "3."
 - Final answer ONLY — no working steps, no explanation
 - Use the same inline LaTeX $...$ formatting
 - One answer per line` : ''}
