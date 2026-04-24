@@ -29,7 +29,6 @@ export async function POST(req) {
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
     const messageContent = []
 
-    // Attach uploaded file if present
     if (file && file.size > 0) {
       const arrayBuffer = await file.arrayBuffer()
       const base64 = Buffer.from(arrayBuffer).toString('base64')
@@ -60,11 +59,11 @@ OUTPUT FORMAT — Markdown with LaTeX math. Follow these rules exactly:
 
 1. Number each question: "1.", "2." etc.
 2. Leave a blank line between questions.
-3. Write all math using LaTeX inside $...$ (inline) or $$...$$ (display/block).
-4. For fractions always use \\dfrac{numerator}{denominator} inside display math $$ $$.
+3. Write ALL math using inline LaTeX $...$ only — do NOT use $$...$$ display blocks.
+4. For fractions use \\dfrac{numerator}{denominator} e.g. $\\dfrac{x+1}{2}$
 5. For square roots use \\sqrt{...}
 6. For powers use ^{...} e.g. x^{2}, (2x+1)^{3}
-7. For whole fraction raised to a power: {\\left(\\dfrac{a}{b}\\right)^{2}}
+7. For whole fraction raised to a power: ${'{'}\\left(\\dfrac{a}{b}\\right)^{2}{'}'}
 8. BRACKET NESTING ORDER — innermost to outermost: ( ) then [ ] then { }
    - Use \\left( \\right) for innermost brackets
    - Use \\left[ \\right] for next level
@@ -72,18 +71,15 @@ OUTPUT FORMAT — Markdown with LaTeX math. Follow these rules exactly:
 9. Always use \\left and \\right before every bracket so they auto-size correctly.
 10. For multiplication between fractions use \\times
 11. Do NOT include answers in the questions section.
-12. Output ONLY the numbered questions in Markdown+LaTeX — no preamble, no headers, no extra explanation.
+12. Output ONLY the numbered questions in Markdown+LaTeX — no preamble, no headers, no explanation.
 
-${includeAnswers ? `AFTER all questions, add the following EXACTLY:
-
+${includeAnswers ? `AFTER all ${count} questions, add this EXACTLY on its own line:
 \\newpage
-
 ## Answer Key
-
-Then list the answers numbered to match each question. For each answer:
-- Show the final simplified answer using the same LaTeX formatting rules above
-- Where helpful, show 1-2 key working steps before the final answer
-- Keep answers concise` : ''}`
+Then list answers numbered 1 to ${count}. Rules for answers:
+- Final answer ONLY — no working steps, no explanation
+- Use the same inline LaTeX $...$ formatting
+- Keep each answer on one line` : ''}`
 
     const userText = description
       ? `${description}\n\nGenerate ${count} questions as described.`
@@ -101,22 +97,67 @@ Then list the answers numbered to match each question. For each answer:
     const markdownText = response.content.find(b => b.type === 'text')?.text || ''
     if (!markdownText) throw new Error('No questions generated')
 
-    // Build full markdown with title
-    const topic = description?.slice(0, 60) || 'Practice Worksheet'
-    const fullMarkdown = `# ${level}\n\n## ${topic}\n\n${markdownText}`
+    const fullMarkdown = `# ${level}\n\n${markdownText}`
 
-    // Write to temp file and convert with pandoc
     const id = Date.now()
     const mdPath = join(tmpdir(), `worksheet_${id}.md`)
     const docxPath = join(tmpdir(), `worksheet_${id}.docx`)
+    const docxFinalPath = join(tmpdir(), `worksheet_final_${id}.docx`)
+    const pyPath = join(tmpdir(), `fix_spacing_${id}.py`)
 
     writeFileSync(mdPath, fullMarkdown, 'utf8')
+
+    // Step 1: pandoc converts markdown to docx
     await execAsync(`pandoc "${mdPath}" -o "${docxPath}" --mathml`)
 
-    const buffer = readFileSync(docxPath)
+    // Step 2: Python post-processor fixes spacing (360 twips = 0.25 inch)
+    const pyScript = `
+import zipfile, shutil, os, re
+
+unzip_dir = '/tmp/docx_${id}'
+if os.path.exists(unzip_dir):
+    shutil.rmtree(unzip_dir)
+with zipfile.ZipFile('${docxPath}', 'r') as z:
+    z.extractall(unzip_dir)
+
+doc_path = os.path.join(unzip_dir, 'word', 'document.xml')
+with open(doc_path, 'r', encoding='utf-8') as f:
+    content = f.read()
+
+def replace_spacing(m):
+    ppr = m.group(0)
+    ppr = re.sub(r'<w:spacing[^/]*/>', '', ppr)
+    ppr = re.sub(r'<w:spacing[^>]*>.*?</w:spacing>', '', ppr, flags=re.DOTALL)
+    ppr = ppr.replace('</w:pPr>', '<w:spacing w:after="360"/></w:pPr>')
+    return ppr
+
+content = re.sub(r'<w:pPr>.*?</w:pPr>', replace_spacing, content, flags=re.DOTALL)
+
+with open(doc_path, 'w', encoding='utf-8') as f:
+    f.write(content)
+
+with zipfile.ZipFile('${docxFinalPath}', 'w', zipfile.ZIP_DEFLATED) as zout:
+    for root, dirs, files in os.walk(unzip_dir):
+        for file in files:
+            filepath = os.path.join(root, file)
+            arcname = os.path.relpath(filepath, unzip_dir)
+            zout.write(filepath, arcname)
+
+shutil.rmtree(unzip_dir)
+print('spacing done')
+`
+    writeFileSync(pyPath, pyScript, 'utf8')
+    await execAsync(`python3 "${pyPath}"`)
+
+    const buffer = readFileSync(docxFinalPath)
 
     // Cleanup
-    try { unlinkSync(mdPath); unlinkSync(docxPath) } catch {}
+    try {
+      unlinkSync(mdPath)
+      unlinkSync(docxPath)
+      unlinkSync(docxFinalPath)
+      unlinkSync(pyPath)
+    } catch {}
 
     return new Response(buffer, {
       status: 200,
