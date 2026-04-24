@@ -190,6 +190,22 @@ if has_answers:
     a_body = re.search(r'<w:body>(.*)</w:body>', a_content, re.DOTALL)
     a_body_content = a_body.group(1).strip() if a_body else ''
     a_body_content = re.sub(r'<w:sectPr>.*?</w:sectPr>', '', a_body_content, flags=re.DOTALL).strip()
+
+    # Remove list numbering from all paragraphs in answers (strips w:numPr)
+    a_body_content = re.sub(r'<w:numPr>.*?</w:numPr>', '', a_body_content, flags=re.DOTALL)
+
+    # Re-number answers as Q1) Q2) Q3) by injecting text into each numbered paragraph
+    counter = [0]
+    def add_qnum(m):
+        # Only add to paragraphs that have actual content (not empty/heading)
+        para = m.group(0)
+        if '<w:t>' in para and '<w:pStyle' not in para:
+            counter[0] += 1
+            label = f'<w:r><w:rPr><w:b/></w:rPr><w:t xml:space="preserve">Q{counter[0]})  </w:t></w:r>'
+            para = para.replace('<w:r>', label, 1)
+        return para
+    a_body_content = re.sub(r'<w:p[ >].*?</w:p>', add_qnum, a_body_content, flags=re.DOTALL)
+
     page_break = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>'
     q_content = q_content.replace('</w:body>', f'{page_break}{a_body_content}</w:body>')
     shutil.rmtree(a_dir)
