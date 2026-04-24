@@ -23,6 +23,7 @@ export async function POST(req) {
     const difficulty = formData.get('difficulty') || 'mixed'
     const extra = formData.get('extra') || ''
     const description = formData.get('description') || ''
+    const includeAnswers = formData.get('includeAnswers') === 'true'
     const file = formData.get('file')
 
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -59,19 +60,30 @@ OUTPUT FORMAT — Markdown with LaTeX math. Follow these rules exactly:
 
 1. Number each question: "1.", "2." etc.
 2. Leave a blank line between questions.
-3. Write all math expressions using LaTeX inside $...$ (inline) or $$...$$ (display/block).
+3. Write all math using LaTeX inside $...$ (inline) or $$...$$ (display/block).
 4. For fractions always use \\dfrac{numerator}{denominator} inside display math $$ $$.
 5. For square roots use \\sqrt{...}
 6. For powers use ^{...} e.g. x^{2}, (2x+1)^{3}
-7. For the whole fraction raised to a power: {\\left(\\dfrac{a}{b}\\right)^{2}}
+7. For whole fraction raised to a power: {\\left(\\dfrac{a}{b}\\right)^{2}}
 8. BRACKET NESTING ORDER — innermost to outermost: ( ) then [ ] then { }
-   - Use \\left( \\right) for innermost
+   - Use \\left( \\right) for innermost brackets
    - Use \\left[ \\right] for next level
    - Use \\left\\{ \\right\\} for outermost
 9. Always use \\left and \\right before every bracket so they auto-size correctly.
 10. For multiplication between fractions use \\times
-11. Do NOT include answers.
-12. Output ONLY the numbered questions in Markdown+LaTeX — no preamble, no headers, no explanation.`
+11. Do NOT include answers in the questions section.
+12. Output ONLY the numbered questions in Markdown+LaTeX — no preamble, no headers, no extra explanation.
+
+${includeAnswers ? `AFTER all questions, add the following EXACTLY:
+
+\\newpage
+
+## Answer Key
+
+Then list the answers numbered to match each question. For each answer:
+- Show the final simplified answer using the same LaTeX formatting rules above
+- Where helpful, show 1-2 key working steps before the final answer
+- Keep answers concise` : ''}`
 
     const userText = description
       ? `${description}\n\nGenerate ${count} questions as described.`
@@ -89,23 +101,21 @@ OUTPUT FORMAT — Markdown with LaTeX math. Follow these rules exactly:
     const markdownText = response.content.find(b => b.type === 'text')?.text || ''
     if (!markdownText) throw new Error('No questions generated')
 
-    // Add title header to markdown
+    // Build full markdown with title
     const topic = description?.slice(0, 60) || 'Practice Worksheet'
     const fullMarkdown = `# ${level}\n\n## ${topic}\n\n${markdownText}`
 
-    // Write markdown to temp file
+    // Write to temp file and convert with pandoc
     const id = Date.now()
     const mdPath = join(tmpdir(), `worksheet_${id}.md`)
     const docxPath = join(tmpdir(), `worksheet_${id}.docx`)
 
     writeFileSync(mdPath, fullMarkdown, 'utf8')
-
-    // Convert with pandoc using mathml for Word equation compatibility
     await execAsync(`pandoc "${mdPath}" -o "${docxPath}" --mathml`)
 
     const buffer = readFileSync(docxPath)
 
-    // Cleanup temp files
+    // Cleanup
     try { unlinkSync(mdPath); unlinkSync(docxPath) } catch {}
 
     return new Response(buffer, {
