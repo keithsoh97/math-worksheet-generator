@@ -75,15 +75,10 @@ OUTPUT FORMAT — Markdown with LaTeX math. Follow these rules exactly:
 
 ${includeAnswers ? `AFTER all ${count} questions, output the following marker on its own line with nothing before or after it:
 ANSWER_KEY_START
-Then immediately list answers using this EXACT format:
-Q1. [answer]
-Q2. [answer]
-Q3. [answer]
-Rules:
-- Format EVERY answer exactly like this: "Q1) " "Q2) " "Q3) " with a closing bracket
-- Final answer ONLY — no working steps, no explanation  
+Then immediately list answers as a numbered list 1. to ${count}. Rules:
+- Final answer ONLY — no working steps, no explanation
 - Use the same inline LaTeX $...$ formatting
-- One answer per line` : ''}
+- One answer per line` : ''}`
 
     const userText = description
       ? `${description}\n\nGenerate ${count} questions as described.`
@@ -150,67 +145,63 @@ def repack(src_dir, output_path):
                 arcname = os.path.relpath(filepath, src_dir)
                 zout.write(filepath, arcname)
 
-def fix_styles(content):
-    # Fix font size in styles.xml: 24 (12pt) -> 28 (14pt), handle optional spaces
-    content = re.sub(r'<w:sz w:val="24"\\s*/>', '<w:sz w:val="28"/>', content)
-    content = re.sub(r'<w:szCs w:val="24"\\s*/>', '<w:szCs w:val="28"/>', content)
-    return content
-
-def fix_spacing(content):
+def fix_styles_and_spacing(unzip_dir):
+    styles_path = os.path.join(unzip_dir, 'word', 'styles.xml')
+    styles = read_xml(styles_path)
+    styles = re.sub(r'<w:sz w:val="24"\\s*/>', '<w:sz w:val="28"/>', styles)
+    styles = re.sub(r'<w:szCs w:val="24"\\s*/>', '<w:szCs w:val="28"/>', styles)
+    write_xml(styles_path, styles)
+    doc_path = os.path.join(unzip_dir, 'word', 'document.xml')
+    doc = read_xml(doc_path)
     def replace_spacing(m):
         ppr = m.group(0)
         ppr = re.sub(r'<w:spacing[^/]*/>', '', ppr)
         ppr = re.sub(r'<w:spacing[^>]*>.*?</w:spacing>', '', ppr, flags=re.DOTALL)
         ppr = ppr.replace('</w:pPr>', '<w:spacing w:after="360"/></w:pPr>')
         return ppr
-    return re.sub(r'<w:pPr>.*?</w:pPr>', replace_spacing, content, flags=re.DOTALL)
+    doc = re.sub(r'<w:pPr>.*?</w:pPr>', replace_spacing, doc, flags=re.DOTALL)
+    write_xml(doc_path, doc)
 
-def process_docx(docx_path):
-    dir_path = docx_path + '_dir'
-    extract(docx_path, dir_path)
-
-    styles_path = os.path.join(dir_path, 'word', 'styles.xml')
-    write_xml(styles_path, fix_styles(read_xml(styles_path)))
-
-    doc_path = os.path.join(dir_path, 'word', 'document.xml')
-    write_xml(doc_path, fix_spacing(read_xml(doc_path)))
-
-    return dir_path
-
-q_dir = process_docx('${docxQPath}')
-q_doc = os.path.join(q_dir, 'word', 'document.xml')
-q_content = read_xml(q_doc)
+q_dir = '${docxQPath}_dir'
+extract('${docxQPath}', q_dir)
+fix_styles_and_spacing(q_dir)
+q_doc_path = os.path.join(q_dir, 'word', 'document.xml')
+q_content = read_xml(q_doc_path)
 
 has_answers = os.path.exists('${docxAPath}')
 
 if has_answers:
-    a_dir = process_docx('${docxAPath}')
-    a_doc = os.path.join(a_dir, 'word', 'document.xml')
-    a_content = read_xml(a_doc)
+    a_dir = '${docxAPath}_dir'
+    extract('${docxAPath}', a_dir)
+    fix_styles_and_spacing(a_dir)
+    a_doc_path = os.path.join(a_dir, 'word', 'document.xml')
+    a_content = read_xml(a_doc_path)
+
     a_body = re.search(r'<w:body>(.*)</w:body>', a_content, re.DOTALL)
-    a_body_content = a_body.group(1).strip() if a_body else ''
+    a_body_content = a_body.group(1).strip()
     a_body_content = re.sub(r'<w:sectPr>.*?</w:sectPr>', '', a_body_content, flags=re.DOTALL).strip()
 
-    # Remove list numbering from all paragraphs in answers (strips w:numPr)
-    a_body_content = re.sub(r'<w:numPr>.*?</w:numPr>', '', a_body_content, flags=re.DOTALL)
-
-    # Re-number answers as Q1) Q2) Q3) by injecting text into each numbered paragraph
+    # Remove auto-numbering and inject Q1) Q2) labels
     counter = [0]
-    def add_qnum(m):
-        # Only add to paragraphs that have actual content (not empty/heading)
+    def fix_answer_para(m):
         para = m.group(0)
-        if '<w:t>' in para and '<w:pStyle' not in para:
-            counter[0] += 1
-            label = f'<w:r><w:rPr><w:b/></w:rPr><w:t xml:space="preserve">Q{counter[0]})  </w:t></w:r>'
-            para = para.replace('<w:r>', label, 1)
+        if '<w:numPr>' not in para:
+            return para
+        counter[0] += 1
+        para = re.sub(r'<w:numPr>.*?</w:numPr>', '', para, flags=re.DOTALL)
+        label = f'<w:r><w:rPr><w:b/><w:sz w:val="28"/><w:szCs w:val="28"/></w:rPr><w:t xml:space="preserve">Q{counter[0]})   </w:t></w:r>'
+        para = para.replace('</w:pPr>', f'</w:pPr>{label}', 1)
         return para
-    a_body_content = re.sub(r'<w:p[ >].*?</w:p>', add_qnum, a_body_content, flags=re.DOTALL)
+
+    a_body_content = re.sub(r'<w:p[ >].*?</w:p>', fix_answer_para, a_body_content, flags=re.DOTALL)
 
     page_break = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>'
     q_content = q_content.replace('</w:body>', f'{page_break}{a_body_content}</w:body>')
+    write_xml(q_doc_path, q_content)
     shutil.rmtree(a_dir)
+else:
+    write_xml(q_doc_path, q_content)
 
-write_xml(q_doc, q_content)
 repack(q_dir, '${docxFinalPath}')
 shutil.rmtree(q_dir)
 print('done')
