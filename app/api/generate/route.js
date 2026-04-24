@@ -75,10 +75,12 @@ OUTPUT FORMAT — Markdown with LaTeX math. Follow these rules exactly:
 
 ${includeAnswers ? `AFTER all ${count} questions, output the following marker on its own line with nothing before or after it:
 ANSWER_KEY_START
-Then immediately list answers numbered 1 to ${count}. Rules:
+Then immediately list answers. Rules:
+- Start numbering from 1 again — use this exact format: "1. ", "2. ", "3. " etc
+- Do NOT continue numbering from the questions — always reset to 1
 - Final answer ONLY — no working steps, no explanation
 - Use the same inline LaTeX $...$ formatting
-- One answer per line` : ''}`
+- One answer per line` : ''}
 
     const userText = description
       ? `${description}\n\nGenerate ${count} questions as described.`
