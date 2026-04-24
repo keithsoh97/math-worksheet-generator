@@ -1,7 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { Document, Packer, Paragraph, TextRun } from 'docx'
 
-export const config = { api: { bodyParser: false } }
 
 const DIFFICULTY_LABELS = {
   'easy': 'easy only — suitable for students just learning the concept',
