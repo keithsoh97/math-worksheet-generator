@@ -15,6 +15,14 @@ const DIFFICULTY_LABELS = {
   'hard': 'hard exam-level questions only',
 }
 
+// Convert Google Drive share URL to direct image URL
+function getDriveImageUrl(url) {
+  if (!url) return null
+  const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/)
+  if (match) return `https://drive.google.com/uc?export=download&id=${match[1]}`
+  return url
+}
+
 export async function POST(req) {
   try {
     const formData = await req.formData()
@@ -25,11 +33,13 @@ export async function POST(req) {
     const description = formData.get('description') || ''
     const includeAnswers = formData.get('includeAnswers') === 'true'
     const format = formData.get('format') || 'docx'
+    const sampleImageUrl = formData.get('sampleImageUrl') || ''
     const file = formData.get('file')
 
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
     const messageContent = []
 
+    // Attach uploaded file if present
     if (file && file.size > 0) {
       const arrayBuffer = await file.arrayBuffer()
       const base64 = Buffer.from(arrayBuffer).toString('base64')
@@ -42,11 +52,33 @@ export async function POST(req) {
       }
     }
 
+    // Attach sample image from Google Sheet if present and no file uploaded
+    if (sampleImageUrl && (!file || file.size === 0)) {
+      try {
+        const directUrl = getDriveImageUrl(sampleImageUrl)
+        if (directUrl) {
+          const imgRes = await fetch(directUrl)
+          if (imgRes.ok) {
+            const imgBuffer = await imgRes.arrayBuffer()
+            const base64 = Buffer.from(imgBuffer).toString('base64')
+            const contentType = imgRes.headers.get('content-type') || 'image/jpeg'
+            const validMime = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(contentType) ? contentType : 'image/jpeg'
+            messageContent.push({ type: 'image', source: { type: 'base64', media_type: validMime, data: base64 } })
+          }
+        }
+      } catch (e) {
+        console.error('Failed to fetch sample image:', e)
+        // Continue without image — description will be used instead
+      }
+    }
+
     const systemPrompt = `You are a Singapore math tuition teacher generating practice questions for ${level} students.
 
 Generate exactly ${count} numbered math practice questions.
 Difficulty: ${DIFFICULTY_LABELS[difficulty] || 'even mix'}.
 ${extra ? `Extra instructions: ${extra}` : ''}
+
+${messageContent.some(m => m.type === 'image') ? 'A sample image of questions has been provided. Use it to understand the style, format, and difficulty level required.' : ''}
 
 OUTPUT FORMAT — Markdown with LaTeX math. Follow these rules exactly:
 
