@@ -9,24 +9,8 @@ const DIFFICULTY_OPTIONS = [
   { val: 'hard', label: 'Hard only' },
 ]
 
-const LEVEL_OPTIONS = [
-  'O-Level E Math',
-  'O-Level A Math',
-  'A-Level H2 Math',
-]
-
-const TOPIC_CHIPS = [
-  'Differentiation — Quotient Rule',
-  'Differentiation — Product Rule',
-  'Differentiation — Chain Rule',
-  'Differentiation — Trigo',
-  'Integration — Reverse Chain Rule',
-  'Integration — Trigo',
-  'Algebra — Factorisation',
-  'Algebra — Algebraic Fractions',
-  'Quadratic Equations',
-  'Surds',
-]
+const LEVEL_OPTIONS = ['O-Level E Math', 'O-Level A Math']
+const SHEET_ID = '1OnBUAPbVgeiTchJXuYbOcjH3Dq95idgyfCiJYWXSMxc'
 
 export default function Home() {
   const [level, setLevel] = useState('O-Level A Math')
@@ -42,9 +26,53 @@ export default function Home() {
   const [dragOver, setDragOver] = useState(false)
   const [history, setHistory] = useState([])
   const [showHistory, setShowHistory] = useState(false)
+  const [topicData, setTopicData] = useState({})
+  const [topicsLoading, setTopicsLoading] = useState(true)
+  const [activeTopic, setActiveTopic] = useState(null)
+  const [activeSubtopic, setActiveSubtopic] = useState(null)
+  const [isCustom, setIsCustom] = useState(false)
+  const [customInput, setCustomInput] = useState('')
   const fileRef = useRef()
 
-  // Load history from localStorage on mount
+  // Fetch topics from Google Sheets on load
+  useEffect(() => {
+    const fetchTopics = async () => {
+      try {
+        setTopicsLoading(true)
+        const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv`
+        const res = await fetch(url)
+        const csv = await res.text()
+        const rows = csv.trim().split('\n').slice(1) // skip header row
+        const data = {}
+        for (const row of rows) {
+          // Parse CSV row (values may be quoted)
+          const cols = row.match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g) || []
+          const clean = cols.map(c => c.replace(/^"|"$/g, '').trim())
+          const [lvl, topic, subtopic, desc] = clean
+          if (!lvl || !topic || !subtopic) continue
+          if (!data[lvl]) data[lvl] = {}
+          if (!data[lvl][topic]) data[lvl][topic] = {}
+          data[lvl][topic][subtopic] = desc || `${topic} — ${subtopic}`
+        }
+        setTopicData(data)
+      } catch (e) {
+        console.error('Failed to load topics:', e)
+      } finally {
+        setTopicsLoading(false)
+      }
+    }
+    fetchTopics()
+  }, [])
+
+  // Reset topic selection when level changes
+  useEffect(() => {
+    setActiveTopic(null)
+    setActiveSubtopic(null)
+    setIsCustom(false)
+    setCustomInput('')
+    setDescription('')
+  }, [level])
+
   useEffect(() => {
     try {
       const saved = localStorage.getItem('worksheet_history')
@@ -54,7 +82,7 @@ export default function Home() {
 
   const saveToHistory = (entry) => {
     try {
-      const updated = [entry, ...history].slice(0, 50) // keep last 50
+      const updated = [entry, ...history].slice(0, 50)
       setHistory(updated)
       localStorage.setItem('worksheet_history', JSON.stringify(updated))
     } catch {}
@@ -66,96 +94,97 @@ export default function Home() {
   }
 
   const loadFromHistory = (entry) => {
-    setLevel(entry.level)
-    setCount(entry.count)
-    setDifficulty(entry.difficulty)
-    setDescription(entry.description)
-    setExtra(entry.extra || '')
-    setIncludeAnswers(entry.includeAnswers || false)
-    setShowHistory(false)
+    setLevel(entry.level); setCount(entry.count); setDifficulty(entry.difficulty)
+    setDescription(entry.description); setExtra(entry.extra || '')
+    setIncludeAnswers(entry.includeAnswers || false); setShowHistory(false)
   }
 
   const handleFile = (f) => {
     if (!f) return
     const allowed = ['image/jpeg','image/png','image/webp','image/gif','application/pdf',
       'application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document']
-    if (!allowed.includes(f.type)) {
-      setError('Please upload an image, PDF, or Word document.')
-      return
-    }
-    setFile(f)
-    setError('')
+    if (!allowed.includes(f.type)) { setError('Please upload an image, PDF, or Word document.'); return }
+    setFile(f); setError('')
   }
 
-  const handleDrop = (e) => {
-    e.preventDefault()
-    setDragOver(false)
-    handleFile(e.dataTransfer.files[0])
+  const handleDrop = (e) => { e.preventDefault(); setDragOver(false); handleFile(e.dataTransfer.files[0]) }
+
+  const handleTopicClick = (topic) => {
+    if (activeTopic === topic && !isCustom) {
+      setActiveTopic(null); setActiveSubtopic(null); setDescription(''); return
+    }
+    setActiveTopic(topic); setActiveSubtopic(null)
+    setIsCustom(false); setCustomInput(''); setDescription(topic)
   }
 
-  const handleGenerate = async () => {
-    if (!description.trim() && !file) {
-      setError('Please provide a description or upload a sample file.')
-      return
-    }
-    setLoading(true)
-    setError('')
-    setStatus('Reading your input...')
+  const handleSubtopicClick = (sub, desc) => {
+    if (activeSubtopic === sub) { setActiveSubtopic(null); setDescription(activeTopic); return }
+    setActiveSubtopic(sub); setDescription(desc)
+  }
 
+  const handleCustomClick = () => {
+    if (isCustom) { setIsCustom(false); setCustomInput(''); setDescription(''); setActiveTopic(null); setActiveSubtopic(null); return }
+    setIsCustom(true); setActiveTopic(null); setActiveSubtopic(null); setDescription(''); setCustomInput('')
+  }
+
+  const handleGenerate = async (fmt) => {
+    if (!description.trim() && !file) { setError('Please select a topic or upload a sample file.'); return }
+    setLoading(true); setError(''); setStatus('Reading your input...')
     try {
       const formData = new FormData()
-      formData.append('level', level)
-      formData.append('count', count)
-      formData.append('difficulty', difficulty)
-      formData.append('extra', extra)
+      formData.append('level', level); formData.append('count', count)
+      formData.append('difficulty', difficulty); formData.append('extra', extra)
       formData.append('description', description)
       formData.append('includeAnswers', includeAnswers ? 'true' : 'false')
+      formData.append('format', fmt)
       if (file) formData.append('file', file)
 
       setStatus('Generating questions with AI...')
       const res = await fetch('/api/generate', { method: 'POST', body: formData })
+      if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Something went wrong') }
 
-      if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.error || 'Something went wrong')
-      }
-
-      setStatus('Building your Word document...')
+      setStatus('Building your document...')
       const blob = await res.blob()
+      const ext = fmt === 'pdf' ? 'pdf' : 'docx'
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
-      a.href = url
-      a.download = `${level.replace(/\s+/g,'-')}_Worksheet.docx`
-      a.click()
+      a.href = url; a.download = `${level.replace(/\s+/g,'-')}_Worksheet.${ext}`; a.click()
       URL.revokeObjectURL(url)
-
-      // Save to history
-      saveToHistory({
-        id: Date.now(),
-        date: new Date().toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
-        level,
-        count,
-        difficulty,
-        description,
-        extra,
-        includeAnswers,
-      })
-
-      setStatus('✓ Done! Your worksheet has been downloaded.')
-    } catch (e) {
-      setError(e.message)
-      setStatus('')
-    }
+      saveToHistory({ id: Date.now(), date: new Date().toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }), level, count, difficulty, description, extra, includeAnswers })
+      setStatus(`✓ Done! Your ${ext.toUpperCase()} has been downloaded.`)
+    } catch (e) { setError(e.message); setStatus('') }
     setLoading(false)
   }
 
-  const diffLabel = {
-    'easy': 'Easy only',
-    'mixed-easy': 'Mostly easy',
-    'mixed': 'Even mix',
-    'mixed-hard': 'Mostly hard',
-    'hard': 'Hard only',
+  const handleBoth = async () => {
+    if (!description.trim() && !file) { setError('Please select a topic or upload a sample file.'); return }
+    setLoading(true); setError('')
+    try {
+      for (const fmt of ['docx', 'pdf']) {
+        setStatus(`Generating ${fmt === 'docx' ? 'Word Doc' : 'PDF'}...`)
+        const formData = new FormData()
+        formData.append('level', level); formData.append('count', count)
+        formData.append('difficulty', difficulty); formData.append('extra', extra)
+        formData.append('description', description)
+        formData.append('includeAnswers', includeAnswers ? 'true' : 'false')
+        formData.append('format', fmt)
+        if (file) formData.append('file', file)
+        const res = await fetch('/api/generate', { method: 'POST', body: formData })
+        if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Something went wrong') }
+        const blob = await res.blob()
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url; a.download = `${level.replace(/\s+/g,'-')}_Worksheet.${fmt}`; a.click()
+        URL.revokeObjectURL(url)
+      }
+      saveToHistory({ id: Date.now(), date: new Date().toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }), level, count, difficulty, description, extra, includeAnswers })
+      setStatus('✓ Done! Both files downloaded.')
+    } catch (e) { setError(e.message); setStatus('') }
+    setLoading(false)
   }
+
+  const diffLabel = { 'easy':'Easy only','mixed-easy':'Mostly easy','mixed':'Even mix','mixed-hard':'Mostly hard','hard':'Hard only' }
+  const currentTopics = topicData[level] || {}
 
   return (
     <div className="min-h-screen bg-gray-50 py-10 px-4">
@@ -165,14 +194,12 @@ export default function Home() {
         <div className="flex items-start justify-between mb-8">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Math Worksheet Generator</h1>
-            <p className="text-sm text-gray-500 mt-1">Upload sample questions or describe what you want — get a Word doc instantly.</p>
+            <p className="text-sm text-gray-500 mt-1">Select a topic or describe your own — download as Word or PDF.</p>
           </div>
           <button onClick={() => setShowHistory(!showHistory)}
             className="relative flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white hover:bg-gray-50 text-gray-600">
             🕓 History
-            {history.length > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 bg-blue-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">{history.length > 9 ? '9+' : history.length}</span>
-            )}
+            {history.length > 0 && <span className="absolute -top-1.5 -right-1.5 bg-blue-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">{history.length > 9 ? '9+' : history.length}</span>}
           </button>
         </div>
 
@@ -181,12 +208,10 @@ export default function Home() {
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 mb-4">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-semibold text-gray-700">Recent Worksheets</h2>
-              {history.length > 0 && (
-                <button onClick={clearHistory} className="text-xs text-red-400 hover:text-red-600">Clear all</button>
-              )}
+              {history.length > 0 && <button onClick={clearHistory} className="text-xs text-red-400 hover:text-red-600">Clear all</button>}
             </div>
             {history.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-4">No history yet — generate your first worksheet!</p>
+              <p className="text-sm text-gray-400 text-center py-4">No history yet!</p>
             ) : (
               <div className="space-y-2 max-h-72 overflow-y-auto">
                 {history.map(entry => (
@@ -194,7 +219,9 @@ export default function Home() {
                     className="w-full text-left px-3 py-2.5 rounded-xl border border-gray-100 hover:border-blue-200 hover:bg-blue-50 transition-all group">
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <p className="text-sm font-medium text-gray-800 group-hover:text-blue-700 leading-snug">{entry.description?.slice(0, 60) || 'No description'}{entry.description?.length > 60 ? '…' : ''}</p>
+                        <p className="text-sm font-medium text-gray-800 group-hover:text-blue-700 leading-snug">
+                          {entry.description?.slice(0, 60) || 'No description'}{entry.description?.length > 60 ? '…' : ''}
+                        </p>
                         <div className="flex items-center gap-2 mt-1 flex-wrap">
                           <span className="text-xs text-gray-400">{entry.level}</span>
                           <span className="text-xs text-gray-300">·</span>
@@ -237,34 +264,107 @@ export default function Home() {
             <div className="flex flex-wrap gap-2">
               {DIFFICULTY_OPTIONS.map(d => (
                 <button key={d.val} onClick={() => setDifficulty(d.val)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
-                    difficulty === d.val ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
-                  }`}>
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${difficulty === d.val ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}`}>
                   {d.label}
                 </button>
               ))}
             </div>
           </div>
 
+          {/* Topic Filter */}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">
+              Topic <span className="normal-case font-normal text-gray-400">— select one, or use ✏️ Custom Topic</span>
+            </label>
+            <div className="border border-gray-200 rounded-xl p-3">
+              {topicsLoading ? (
+                <p className="text-sm text-gray-400 text-center py-2">⏳ Loading topics...</p>
+              ) : Object.keys(currentTopics).length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-2">No topics found for this level in your sheet.</p>
+              ) : (
+                <>
+                  {/* Topic chips */}
+                  <div className="flex flex-wrap gap-2">
+                    {Object.keys(currentTopics).map(topic => (
+                      <button key={topic} onClick={() => handleTopicClick(topic)}
+                        className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${activeTopic === topic && !isCustom ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}`}>
+                        {topic}
+                      </button>
+                    ))}
+                    <button onClick={handleCustomClick}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium border border-dashed transition-all ${isCustom ? 'bg-yellow-50 text-yellow-700 border-yellow-300' : 'bg-white text-gray-400 border-gray-300 hover:bg-yellow-50 hover:text-yellow-600 hover:border-yellow-300'}`}>
+                      ✏️ Custom Topic
+                    </button>
+                  </div>
+
+                  {/* Subtopics */}
+                  {activeTopic && !isCustom && Object.keys(currentTopics[activeTopic] || {}).length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-gray-100">
+                      {Object.entries(currentTopics[activeTopic]).map(([sub, desc]) => (
+                        <button key={sub} onClick={() => handleSubtopicClick(sub, desc)}
+                          className={`px-3 py-1 rounded-full text-xs border transition-all ${activeSubtopic === sub ? 'bg-green-50 text-green-700 border-green-200 font-medium' : 'bg-white text-gray-400 border-dashed border-gray-300 hover:bg-gray-50'}`}>
+                          {sub}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Custom input */}
+                  {isCustom && (
+                    <div className="mt-3 pt-3 border-t border-yellow-200">
+                      <textarea value={customInput}
+                        onChange={e => { setCustomInput(e.target.value); setDescription(e.target.value) }}
+                        placeholder="e.g. Differentiation using Quotient Rule with trigo in numerator..."
+                        rows={2}
+                        className="w-full border border-yellow-300 rounded-lg px-3 py-2 text-sm text-gray-800 focus:outline-none focus:border-yellow-400 resize-none bg-yellow-50" />
+                      <p className="text-xs text-yellow-600 mt-1">💡 Type freely — no need to follow any format</p>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Description */}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">
+              Description
+              {activeTopic && !isCustom && <span className="ml-2 text-xs bg-green-100 text-green-600 px-2 py-0.5 rounded-full normal-case font-normal">✓ Auto-filled</span>}
+              {isCustom && <span className="ml-2 text-xs bg-yellow-100 text-yellow-600 px-2 py-0.5 rounded-full normal-case font-normal">✏️ Custom</span>}
+            </label>
+            <textarea value={description} onChange={e => setDescription(e.target.value)}
+              placeholder="Filled automatically when you select a topic above..."
+              rows={2}
+              className={`w-full border rounded-lg px-3 py-2 text-sm text-gray-800 focus:outline-none resize-none ${activeTopic && !isCustom ? 'bg-blue-50 border-blue-200' : isCustom ? 'bg-yellow-50 border-yellow-200' : 'border-gray-200 focus:border-gray-400'}`} />
+            <p className="text-xs text-gray-400 mt-1">This is sent to Claude — edit freely even after auto-filling.</p>
+          </div>
+
+          {/* Remarks */}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">
+              Remarks <span className="normal-case font-normal text-gray-400">(optional — always available)</span>
+            </label>
+            <textarea value={extra} onChange={e => setExtra(e.target.value)}
+              placeholder="e.g. Include surds in numerator. Avoid simple polynomials."
+              rows={2}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 focus:outline-none focus:border-gray-400 resize-none" />
+          </div>
+
           {/* Upload */}
           <div>
             <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">
-              Upload Sample Questions <span className="normal-case font-normal">(image, PDF, or Word doc)</span>
+              Upload Sample <span className="normal-case font-normal text-gray-400">(image, PDF, Word — optional)</span>
             </label>
             <div onClick={() => fileRef.current.click()}
               onDragOver={e => { e.preventDefault(); setDragOver(true) }}
               onDragLeave={() => setDragOver(false)}
               onDrop={handleDrop}
-              className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-all ${
-                dragOver ? 'border-blue-400 bg-blue-50' : file ? 'border-green-300 bg-green-50' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-              }`}>
-              <input ref={fileRef} type="file" className="hidden" accept="image/*,.pdf,.doc,.docx"
-                onChange={e => handleFile(e.target.files[0])} />
+              className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-all ${dragOver ? 'border-blue-400 bg-blue-50' : file ? 'border-green-300 bg-green-50' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}>
+              <input ref={fileRef} type="file" className="hidden" accept="image/*,.pdf,.doc,.docx" onChange={e => handleFile(e.target.files[0])} />
               {file ? (
                 <div className="flex items-center justify-center gap-2">
                   <span className="text-green-600 text-sm font-medium">✓ {file.name}</span>
-                  <button onClick={e => { e.stopPropagation(); setFile(null) }}
-                    className="text-xs text-gray-400 hover:text-red-400 ml-2">Remove</button>
+                  <button onClick={e => { e.stopPropagation(); setFile(null) }} className="text-xs text-gray-400 hover:text-red-400 ml-2">Remove</button>
                 </div>
               ) : (
                 <div>
@@ -275,67 +375,5 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Description */}
-          <div>
-            <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">Description / Instructions</label>
-            <textarea value={description} onChange={e => setDescription(e.target.value)}
-              placeholder="e.g. Differentiation using Quotient Rule with trigo functions in numerator"
-              rows={3}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 focus:outline-none focus:border-gray-400 resize-none" />
-            {/* Topic chips */}
-            <div className="flex flex-wrap gap-1.5 mt-2">
-              {TOPIC_CHIPS.map(t => (
-                <button key={t} onClick={() => setDescription(t)}
-                  className="text-xs px-2.5 py-1 rounded-full border border-dashed border-gray-200 text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-all">
-                  {t}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Extra */}
-          <div>
-            <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">
-              Extra Instructions <span className="normal-case font-normal">(optional)</span>
-            </label>
-            <textarea value={extra} onChange={e => setExtra(e.target.value)}
-              placeholder="e.g. Avoid negative coefficients. Keep denominators simple."
-              rows={2}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 focus:outline-none focus:border-gray-400 resize-none" />
-          </div>
-
           {/* Answer Key Toggle */}
-          <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
-            <div>
-              <p className="text-sm font-medium text-gray-700">Include Answer Key</p>
-              <p className="text-xs text-gray-400 mt-0.5">Answers added on a separate page after questions</p>
-            </div>
-            <button onClick={() => setIncludeAnswers(!includeAnswers)}
-              className={`relative w-11 h-6 rounded-full transition-all ${includeAnswers ? 'bg-blue-500' : 'bg-gray-200'}`}>
-              <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${includeAnswers ? 'translate-x-5' : ''}`} />
-            </button>
-          </div>
-
-          {/* Error */}
-          {error && <p className="text-sm text-red-500 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
-
-          {/* Status */}
-          {status && (
-            <p className={`text-sm px-3 py-2 rounded-lg ${status.startsWith('✓') ? 'text-green-700 bg-green-50' : 'text-blue-600 bg-blue-50'}`}>
-              {!status.startsWith('✓') && <span className="inline-block mr-2 animate-spin">⏳</span>}
-              {status}
-            </p>
-          )}
-
-          {/* Button */}
-          <button onClick={handleGenerate} disabled={loading}
-            className="w-full py-3 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all">
-            {loading ? 'Generating...' : `Generate Word Doc ${includeAnswers ? '(with Answers)' : ''} ↓`}
-          </button>
-        </div>
-
-        <p className="text-center text-xs text-gray-400 mt-4">Powered by Claude AI · For tuition use</p>
-      </div>
-    </div>
-  )
-}
+          <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-g
