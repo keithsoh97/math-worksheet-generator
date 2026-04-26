@@ -24,6 +24,7 @@ export async function POST(req) {
     const extra = formData.get('extra') || ''
     const description = formData.get('description') || ''
     const includeAnswers = formData.get('includeAnswers') === 'true'
+    const format = formData.get('format') || 'docx'
     const file = formData.get('file')
 
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -33,19 +34,11 @@ export async function POST(req) {
       const arrayBuffer = await file.arrayBuffer()
       const base64 = Buffer.from(arrayBuffer).toString('base64')
       const mime = file.type
-
       if (mime.startsWith('image/')) {
-        const validMime = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mime)
-          ? mime : 'image/jpeg'
-        messageContent.push({
-          type: 'image',
-          source: { type: 'base64', media_type: validMime, data: base64 }
-        })
+        const validMime = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mime) ? mime : 'image/jpeg'
+        messageContent.push({ type: 'image', source: { type: 'base64', media_type: validMime, data: base64 } })
       } else if (mime === 'application/pdf') {
-        messageContent.push({
-          type: 'document',
-          source: { type: 'base64', media_type: 'application/pdf', data: base64 }
-        })
+        messageContent.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } })
       }
     }
 
@@ -68,7 +61,7 @@ OUTPUT FORMAT — Markdown with LaTeX math. Follow these rules exactly:
    - Use \\left( \\right) for innermost brackets
    - Use \\left[ \\right] for next level
    - Use \\left\\{ \\right\\} for outermost
-9. Always use \\left and \\right before every bracket so they auto-size correctly.
+9. Always use \\left and \\right before every bracket so they auto-size.
 10. For multiplication between fractions use \\times
 11. Do NOT include answers in the questions section.
 12. Output ONLY the numbered questions in Markdown+LaTeX — no preamble, no headers, no explanation.
@@ -114,8 +107,28 @@ Then immediately list answers as a numbered list 1. to ${count}. Rules:
     const docxQPath = join(tmpdir(), `wq_${id}.docx`)
     const docxAPath = join(tmpdir(), `wa_${id}.docx`)
     const docxFinalPath = join(tmpdir(), `wfinal_${id}.docx`)
+    const pdfPath = join(tmpdir(), `wfinal_${id}.pdf`)
     const pyPath = join(tmpdir(), `fix_${id}.py`)
 
+    // PDF branch
+    if (format === 'pdf') {
+      const fullMd = answersMarkdown
+        ? `${questionsMarkdown}\n\n\\newpage\n\n${answersMarkdown}`
+        : questionsMarkdown
+      writeFileSync(mdQPath, fullMd, 'utf8')
+      await execAsync(`pandoc "${mdQPath}" -o "${pdfPath}" --pdf-engine=xelatex`)
+      const buffer = readFileSync(pdfPath)
+      try { [mdQPath, pdfPath].forEach(f => { try { unlinkSync(f) } catch {} }) } catch {}
+      return new Response(buffer, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': `attachment; filename="${level.replace(/\s+/g, '-')}_Worksheet.pdf"`,
+        }
+      })
+    }
+
+    // Word doc branch
     writeFileSync(mdQPath, questionsMarkdown, 'utf8')
     await execAsync(`pandoc "${mdQPath}" -o "${docxQPath}" --mathml`)
 
@@ -176,12 +189,9 @@ if has_answers:
     fix_styles_and_spacing(a_dir)
     a_doc_path = os.path.join(a_dir, 'word', 'document.xml')
     a_content = read_xml(a_doc_path)
-
     a_body = re.search(r'<w:body>(.*)</w:body>', a_content, re.DOTALL)
     a_body_content = a_body.group(1).strip()
     a_body_content = re.sub(r'<w:sectPr>.*?</w:sectPr>', '', a_body_content, flags=re.DOTALL).strip()
-
-    # Remove auto-numbering and inject Q1) Q2) labels
     counter = [0]
     def fix_answer_para(m):
         para = m.group(0)
@@ -192,16 +202,12 @@ if has_answers:
         label = f'<w:r><w:rPr><w:b/><w:sz w:val="28"/><w:szCs w:val="28"/></w:rPr><w:t xml:space="preserve">Q{counter[0]})   </w:t></w:r>'
         para = para.replace('</w:pPr>', f'</w:pPr>{label}', 1)
         return para
-
     a_body_content = re.sub(r'<w:p[ >].*?</w:p>', fix_answer_para, a_body_content, flags=re.DOTALL)
-
     page_break = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>'
     q_content = q_content.replace('</w:body>', f'{page_break}{a_body_content}</w:body>')
-    write_xml(q_doc_path, q_content)
     shutil.rmtree(a_dir)
-else:
-    write_xml(q_doc_path, q_content)
 
+write_xml(q_doc_path, q_content)
 repack(q_dir, '${docxFinalPath}')
 shutil.rmtree(q_dir)
 print('done')
@@ -209,12 +215,8 @@ print('done')
 
     writeFileSync(pyPath, pyScript, 'utf8')
     await execAsync(`python3 "${pyPath}"`)
-
     const buffer = readFileSync(docxFinalPath)
-
-    try {
-      [mdQPath, mdAPath, docxQPath, docxAPath, docxFinalPath, pyPath].forEach(f => { try { unlinkSync(f) } catch {} })
-    } catch {}
+    try { [mdQPath, mdAPath, docxQPath, docxAPath, docxFinalPath, pyPath].forEach(f => { try { unlinkSync(f) } catch {} }) } catch {}
 
     return new Response(buffer, {
       status: 200,
