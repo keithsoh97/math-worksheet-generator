@@ -10,14 +10,14 @@ const DIFFICULTY_OPTIONS = [
 ]
 
 const LEVELS = [
-  { val: 'O-Level E Math', label: 'E Math' },
-  { val: 'O-Level A Math', label: 'A Math' },
+  { val: 'Emath', label: 'E Math' },
+  { val: 'Amath', label: 'A Math' },
 ]
 
 const SHEET_ID = '1OnBUAPbVgeiTchJXuYbOcjH3Dq95idgyfCiJYWXSMxc'
 
 export default function Home() {
-  const [level, setLevel] = useState('O-Level A Math')
+  const [level, setLevel] = useState('Amath')
   const [count, setCount] = useState(10)
   const [difficulty, setDifficulty] = useState('mixed-easy')
   const [extra, setExtra] = useState('')
