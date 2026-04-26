@@ -19,6 +19,7 @@ export default function Home() {
   const [extra, setExtra] = useState('')
   const [file, setFile] = useState(null)
   const [description, setDescription] = useState('')
+  const [sampleImageUrl, setSampleImageUrl] = useState('')
   const [includeAnswers, setIncludeAnswers] = useState(false)
   const [loading, setLoading] = useState(false)
   const [status, setStatus] = useState('')
@@ -34,7 +35,6 @@ export default function Home() {
   const [customInput, setCustomInput] = useState('')
   const fileRef = useRef()
 
-  // Fetch topics from Google Sheets on load
   useEffect(() => {
     const fetchTopics = async () => {
       try {
@@ -42,17 +42,19 @@ export default function Home() {
         const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv`
         const res = await fetch(url)
         const csv = await res.text()
-        const rows = csv.trim().split('\n').slice(1) // skip header row
+        const rows = csv.trim().split('\n').slice(1)
         const data = {}
         for (const row of rows) {
-          // Parse CSV row (values may be quoted)
-          const cols = row.match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g) || []
-          const clean = cols.map(c => c.replace(/^"|"$/g, '').trim())
-          const [lvl, topic, subtopic, desc] = clean
+          const cols = row.match(/(".*?"|[^",\n]+|(?<=,)(?=,))/g) || row.split(',')
+          const clean = cols.map(c => c ? c.replace(/^"|"$/g, '').trim() : '')
+          const [lvl, topic, subtopic, desc, imageUrl] = clean
           if (!lvl || !topic || !subtopic) continue
           if (!data[lvl]) data[lvl] = {}
           if (!data[lvl][topic]) data[lvl][topic] = {}
-          data[lvl][topic][subtopic] = desc || `${topic} — ${subtopic}`
+          data[lvl][topic][subtopic] = {
+            desc: desc || `${topic} — ${subtopic}`,
+            imageUrl: imageUrl || ''
+          }
         }
         setTopicData(data)
       } catch (e) {
@@ -64,13 +66,10 @@ export default function Home() {
     fetchTopics()
   }, [])
 
-  // Reset topic selection when level changes
   useEffect(() => {
-    setActiveTopic(null)
-    setActiveSubtopic(null)
-    setIsCustom(false)
-    setCustomInput('')
-    setDescription('')
+    setActiveTopic(null); setActiveSubtopic(null)
+    setIsCustom(false); setCustomInput('')
+    setDescription(''); setSampleImageUrl('')
   }, [level])
 
   useEffect(() => {
@@ -88,10 +87,7 @@ export default function Home() {
     } catch {}
   }
 
-  const clearHistory = () => {
-    setHistory([])
-    localStorage.removeItem('worksheet_history')
-  }
+  const clearHistory = () => { setHistory([]); localStorage.removeItem('worksheet_history') }
 
   const loadFromHistory = (entry) => {
     setLevel(entry.level); setCount(entry.count); setDifficulty(entry.difficulty)
@@ -111,20 +107,28 @@ export default function Home() {
 
   const handleTopicClick = (topic) => {
     if (activeTopic === topic && !isCustom) {
-      setActiveTopic(null); setActiveSubtopic(null); setDescription(''); return
+      setActiveTopic(null); setActiveSubtopic(null)
+      setDescription(''); setSampleImageUrl(''); return
     }
     setActiveTopic(topic); setActiveSubtopic(null)
-    setIsCustom(false); setCustomInput(''); setDescription(topic)
+    setIsCustom(false); setCustomInput('')
+    setDescription(topic); setSampleImageUrl('')
   }
 
-  const handleSubtopicClick = (sub, desc) => {
-    if (activeSubtopic === sub) { setActiveSubtopic(null); setDescription(activeTopic); return }
-    setActiveSubtopic(sub); setDescription(desc)
+  const handleSubtopicClick = (sub, desc, imageUrl) => {
+    if (activeSubtopic === sub) {
+      setActiveSubtopic(null); setDescription(activeTopic); setSampleImageUrl(''); return
+    }
+    setActiveSubtopic(sub); setDescription(desc); setSampleImageUrl(imageUrl || '')
   }
 
   const handleCustomClick = () => {
-    if (isCustom) { setIsCustom(false); setCustomInput(''); setDescription(''); setActiveTopic(null); setActiveSubtopic(null); return }
-    setIsCustom(true); setActiveTopic(null); setActiveSubtopic(null); setDescription(''); setCustomInput('')
+    if (isCustom) {
+      setIsCustom(false); setCustomInput(''); setDescription('')
+      setActiveTopic(null); setActiveSubtopic(null); setSampleImageUrl(''); return
+    }
+    setIsCustom(true); setActiveTopic(null); setActiveSubtopic(null)
+    setDescription(''); setCustomInput(''); setSampleImageUrl('')
   }
 
   const handleGenerate = async (fmt) => {
@@ -137,6 +141,7 @@ export default function Home() {
       formData.append('description', description)
       formData.append('includeAnswers', includeAnswers ? 'true' : 'false')
       formData.append('format', fmt)
+      formData.append('sampleImageUrl', sampleImageUrl || '')
       if (file) formData.append('file', file)
 
       setStatus('Generating questions with AI...')
@@ -168,6 +173,7 @@ export default function Home() {
         formData.append('description', description)
         formData.append('includeAnswers', includeAnswers ? 'true' : 'false')
         formData.append('format', fmt)
+        formData.append('sampleImageUrl', sampleImageUrl || '')
         if (file) formData.append('file', file)
         const res = await fetch('/api/generate', { method: 'POST', body: formData })
         if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Something went wrong') }
@@ -278,12 +284,11 @@ export default function Home() {
             </label>
             <div className="border border-gray-200 rounded-xl p-3">
               {topicsLoading ? (
-                <p className="text-sm text-gray-400 text-center py-2">⏳ Loading topics...</p>
+                <p className="text-sm text-gray-400 text-center py-2">⏳ Loading topics from sheet...</p>
               ) : Object.keys(currentTopics).length === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-2">No topics found for this level in your sheet.</p>
+                <p className="text-sm text-gray-400 text-center py-2">No topics found for this level. Check your Google Sheet is public.</p>
               ) : (
                 <>
-                  {/* Topic chips */}
                   <div className="flex flex-wrap gap-2">
                     {Object.keys(currentTopics).map(topic => (
                       <button key={topic} onClick={() => handleTopicClick(topic)}
@@ -300,10 +305,11 @@ export default function Home() {
                   {/* Subtopics */}
                   {activeTopic && !isCustom && Object.keys(currentTopics[activeTopic] || {}).length > 0 && (
                     <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-gray-100">
-                      {Object.entries(currentTopics[activeTopic]).map(([sub, desc]) => (
-                        <button key={sub} onClick={() => handleSubtopicClick(sub, desc)}
+                      {Object.entries(currentTopics[activeTopic]).map(([sub, val]) => (
+                        <button key={sub} onClick={() => handleSubtopicClick(sub, val.desc, val.imageUrl)}
                           className={`px-3 py-1 rounded-full text-xs border transition-all ${activeSubtopic === sub ? 'bg-green-50 text-green-700 border-green-200 font-medium' : 'bg-white text-gray-400 border-dashed border-gray-300 hover:bg-gray-50'}`}>
                           {sub}
+                          {val.imageUrl && <span className="ml-1 text-blue-400">🖼</span>}
                         </button>
                       ))}
                     </div>
@@ -331,6 +337,7 @@ export default function Home() {
               Description
               {activeTopic && !isCustom && <span className="ml-2 text-xs bg-green-100 text-green-600 px-2 py-0.5 rounded-full normal-case font-normal">✓ Auto-filled</span>}
               {isCustom && <span className="ml-2 text-xs bg-yellow-100 text-yellow-600 px-2 py-0.5 rounded-full normal-case font-normal">✏️ Custom</span>}
+              {sampleImageUrl && <span className="ml-2 text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full normal-case font-normal">🖼 Sample image attached</span>}
             </label>
             <textarea value={description} onChange={e => setDescription(e.target.value)}
               placeholder="Filled automatically when you select a topic above..."
@@ -364,16 +371,4 @@ export default function Home() {
               {file ? (
                 <div className="flex items-center justify-center gap-2">
                   <span className="text-green-600 text-sm font-medium">✓ {file.name}</span>
-                  <button onClick={e => { e.stopPropagation(); setFile(null) }} className="text-xs text-gray-400 hover:text-red-400 ml-2">Remove</button>
-                </div>
-              ) : (
-                <div>
-                  <p className="text-sm text-gray-400">Drag & drop or click to upload</p>
-                  <p className="text-xs text-gray-300 mt-1">JPG, PNG, PDF, DOC, DOCX · Handwritten OK</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Answer Key Toggle */}
-          <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-g
+                  <butto
