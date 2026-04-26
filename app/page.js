@@ -9,7 +9,11 @@ const DIFFICULTY_OPTIONS = [
   { val: 'hard', label: 'Hard only' },
 ]
 
-const LEVEL_OPTIONS = ['O-Level E Math', 'O-Level A Math']
+const LEVELS = [
+  { val: 'O-Level E Math', label: 'E Math' },
+  { val: 'O-Level A Math', label: 'A Math' },
+]
+
 const SHEET_ID = '1OnBUAPbVgeiTchJXuYbOcjH3Dq95idgyfCiJYWXSMxc'
 
 export default function Home() {
@@ -248,20 +252,28 @@ export default function Home() {
 
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-5">
 
-          {/* Level + Count */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">Level</label>
-              <select value={level} onChange={e => setLevel(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 focus:outline-none focus:border-gray-400">
-                {LEVEL_OPTIONS.map(l => <option key={l}>{l}</option>)}
-              </select>
+          {/* Level selector — two big visible buttons */}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Level</label>
+            <div className="grid grid-cols-2 gap-3">
+              {LEVELS.map(l => (
+                <button key={l.val} onClick={() => setLevel(l.val)}
+                  className={`py-4 rounded-xl border-2 font-bold text-lg transition-all ${
+                    level === l.val
+                      ? 'border-gray-900 bg-gray-900 text-white'
+                      : 'border-gray-200 bg-white text-gray-400 hover:border-gray-400 hover:text-gray-600'
+                  }`}>
+                  {l.label}
+                </button>
+              ))}
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">No. of Questions</label>
-              <input type="number" min={1} max={30} value={count} onChange={e => setCount(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 focus:outline-none focus:border-gray-400" />
-            </div>
+          </div>
+
+          {/* No. of Questions */}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">No. of Questions</label>
+            <input type="number" min={1} max={30} value={count} onChange={e => setCount(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 focus:outline-none focus:border-gray-400" />
           </div>
 
           {/* Difficulty */}
@@ -286,7 +298,7 @@ export default function Home() {
               {topicsLoading ? (
                 <p className="text-sm text-gray-400 text-center py-2">⏳ Loading topics from sheet...</p>
               ) : Object.keys(currentTopics).length === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-2">No topics found for this level. Check your Google Sheet is public.</p>
+                <p className="text-sm text-gray-400 text-center py-2">No topics found. Check your Google Sheet is set to public.</p>
               ) : (
                 <>
                   <div className="flex flex-wrap gap-2">
@@ -302,7 +314,6 @@ export default function Home() {
                     </button>
                   </div>
 
-                  {/* Subtopics */}
                   {activeTopic && !isCustom && Object.keys(currentTopics[activeTopic] || {}).length > 0 && (
                     <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-gray-100">
                       {Object.entries(currentTopics[activeTopic]).map(([sub, val]) => (
@@ -315,7 +326,6 @@ export default function Home() {
                     </div>
                   )}
 
-                  {/* Custom input */}
                   {isCustom && (
                     <div className="mt-3 pt-3 border-t border-yellow-200">
                       <textarea value={customInput}
