@@ -14,6 +14,12 @@ const LEVELS = [
   { val: 'Amath', label: 'A Math' },
 ]
 
+const LAYOUT_OPTIONS = [
+  { val: 'compact', label: 'Compact', sub: 'All together' },
+  { val: '2pp', label: '2 per page', sub: 'Split evenly' },
+  { val: '1pp', label: '1 per page', sub: 'Full page each' },
+]
+
 const SHEET_ID = '1OnBUAPbVgeiTchJXuYbOcjH3Dq95idgyfCiJYWXSMxc'
 
 export default function Home() {
@@ -25,6 +31,7 @@ export default function Home() {
   const [description, setDescription] = useState('')
   const [sampleImageUrl, setSampleImageUrl] = useState('')
   const [includeAnswers, setIncludeAnswers] = useState(false)
+  const [layout, setLayout] = useState('compact')
   const [loading, setLoading] = useState(false)
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
@@ -96,7 +103,9 @@ export default function Home() {
   const loadFromHistory = (entry) => {
     setLevel(entry.level); setCount(entry.count); setDifficulty(entry.difficulty)
     setDescription(entry.description); setExtra(entry.extra || '')
-    setIncludeAnswers(entry.includeAnswers || false); setShowHistory(false)
+    setIncludeAnswers(entry.includeAnswers || false)
+    setLayout(entry.layout || 'compact')
+    setShowHistory(false)
   }
 
   const handleFile = (f) => {
@@ -145,6 +154,7 @@ export default function Home() {
       formData.append('description', description)
       formData.append('includeAnswers', includeAnswers ? 'true' : 'false')
       formData.append('format', fmt)
+      formData.append('layout', layout)
       formData.append('sampleImageUrl', sampleImageUrl || '')
       if (file) formData.append('file', file)
 
@@ -157,9 +167,9 @@ export default function Home() {
       const ext = fmt === 'pdf' ? 'pdf' : 'docx'
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
-      a.href = url; a.download = `${level.replace(/\s+/g,'-')}_Worksheet.${ext}`; a.click()
+      a.href = url; a.download = `${level}_Worksheet.${ext}`; a.click()
       URL.revokeObjectURL(url)
-      saveToHistory({ id: Date.now(), date: new Date().toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }), level, count, difficulty, description, extra, includeAnswers })
+      saveToHistory({ id: Date.now(), date: new Date().toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }), level, count, difficulty, description, extra, includeAnswers, layout })
       setStatus(`✓ Done! Your ${ext.toUpperCase()} has been downloaded.`)
     } catch (e) { setError(e.message); setStatus('') }
     setLoading(false)
@@ -177,6 +187,7 @@ export default function Home() {
         formData.append('description', description)
         formData.append('includeAnswers', includeAnswers ? 'true' : 'false')
         formData.append('format', fmt)
+        formData.append('layout', layout)
         formData.append('sampleImageUrl', sampleImageUrl || '')
         if (file) formData.append('file', file)
         const res = await fetch('/api/generate', { method: 'POST', body: formData })
@@ -184,10 +195,10 @@ export default function Home() {
         const blob = await res.blob()
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
-        a.href = url; a.download = `${level.replace(/\s+/g,'-')}_Worksheet.${fmt}`; a.click()
+        a.href = url; a.download = `${level}_Worksheet.${fmt}`; a.click()
         URL.revokeObjectURL(url)
       }
-      saveToHistory({ id: Date.now(), date: new Date().toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }), level, count, difficulty, description, extra, includeAnswers })
+      saveToHistory({ id: Date.now(), date: new Date().toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }), level, count, difficulty, description, extra, includeAnswers, layout })
       setStatus('✓ Done! Both files downloaded.')
     } catch (e) { setError(e.message); setStatus('') }
     setLoading(false)
@@ -195,6 +206,29 @@ export default function Home() {
 
   const diffLabel = { 'easy':'Easy only','mixed-easy':'Mostly easy','mixed':'Even mix','mixed-hard':'Mostly hard','hard':'Hard only' }
   const currentTopics = topicData[level] || {}
+
+  const LayoutPreview = ({ val }) => {
+    if (val === 'compact') return (
+      <div className="w-10 h-14 border border-gray-300 rounded mx-auto mb-2 flex flex-col justify-start p-1 gap-0.5">
+        {[80,90,70,85,75,88,72,80].map((w,i) => <div key={i} className="h-0.5 rounded bg-gray-300" style={{width:`${w}%`}}/>)}
+      </div>
+    )
+    if (val === '2pp') return (
+      <div className="w-10 h-14 border border-gray-300 rounded mx-auto mb-2 overflow-hidden">
+        <div className="h-1/2 border-b border-dashed border-gray-300 flex flex-col justify-start p-1 gap-0.5">
+          {[85,70,75].map((w,i) => <div key={i} className="h-0.5 rounded bg-gray-300" style={{width:`${w}%`}}/>)}
+        </div>
+        <div className="h-1/2 flex flex-col justify-start p-1 gap-0.5">
+          {[85,70,75].map((w,i) => <div key={i} className="h-0.5 rounded bg-gray-300" style={{width:`${w}%`}}/>)}
+        </div>
+      </div>
+    )
+    return (
+      <div className="w-10 h-14 border border-gray-300 rounded mx-auto mb-2 flex flex-col justify-start p-1 gap-0.5">
+        {[85,70,75].map((w,i) => <div key={i} className="h-0.5 rounded bg-gray-300" style={{width:`${w}%`}}/>)}
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 py-10 px-4">
@@ -252,24 +286,20 @@ export default function Home() {
 
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-5">
 
-          {/* Level selector — two big visible buttons */}
+          {/* Level buttons */}
           <div>
             <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Level</label>
             <div className="grid grid-cols-2 gap-3">
               {LEVELS.map(l => (
                 <button key={l.val} onClick={() => setLevel(l.val)}
-                  className={`py-4 rounded-xl border-2 font-bold text-lg transition-all ${
-                    level === l.val
-                      ? 'border-gray-900 bg-gray-900 text-white'
-                      : 'border-gray-200 bg-white text-gray-400 hover:border-gray-400 hover:text-gray-600'
-                  }`}>
+                  className={`py-4 rounded-xl border-2 font-bold text-lg transition-all ${level === l.val ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-400 hover:border-gray-400 hover:text-gray-600'}`}>
                   {l.label}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* No. of Questions */}
+          {/* Count */}
           <div>
             <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">No. of Questions</label>
             <input type="number" min={1} max={30} value={count} onChange={e => setCount(e.target.value)}
@@ -319,8 +349,7 @@ export default function Home() {
                       {Object.entries(currentTopics[activeTopic]).map(([sub, val]) => (
                         <button key={sub} onClick={() => handleSubtopicClick(sub, val.desc, val.imageUrl)}
                           className={`px-3 py-1 rounded-full text-xs border transition-all ${activeSubtopic === sub ? 'bg-green-50 text-green-700 border-green-200 font-medium' : 'bg-white text-gray-400 border-dashed border-gray-300 hover:bg-gray-50'}`}>
-                          {sub}
-                          {val.imageUrl && <span className="ml-1 text-blue-400">🖼</span>}
+                          {sub}{val.imageUrl && <span className="ml-1 text-blue-400">🖼</span>}
                         </button>
                       ))}
                     </div>
@@ -341,25 +370,10 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Description */}
-          <div>
-            <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">
-              Description
-              {activeTopic && !isCustom && <span className="ml-2 text-xs bg-green-100 text-green-600 px-2 py-0.5 rounded-full normal-case font-normal">✓ Auto-filled</span>}
-              {isCustom && <span className="ml-2 text-xs bg-yellow-100 text-yellow-600 px-2 py-0.5 rounded-full normal-case font-normal">✏️ Custom</span>}
-              {sampleImageUrl && <span className="ml-2 text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full normal-case font-normal">🖼 Sample image attached</span>}
-            </label>
-            <textarea value={description} onChange={e => setDescription(e.target.value)}
-              placeholder="Filled automatically when you select a topic above..."
-              rows={2}
-              className={`w-full border rounded-lg px-3 py-2 text-sm text-gray-800 focus:outline-none resize-none ${activeTopic && !isCustom ? 'bg-blue-50 border-blue-200' : isCustom ? 'bg-yellow-50 border-yellow-200' : 'border-gray-200 focus:border-gray-400'}`} />
-            <p className="text-xs text-gray-400 mt-1">This is sent to Claude — edit freely even after auto-filling.</p>
-          </div>
-
           {/* Remarks */}
           <div>
             <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">
-              Remarks <span className="normal-case font-normal text-gray-400">(optional — always available)</span>
+              Remarks <span className="normal-case font-normal text-gray-400">(optional)</span>
             </label>
             <textarea value={extra} onChange={e => setExtra(e.target.value)}
               placeholder="e.g. Include surds in numerator. Avoid simple polynomials."
@@ -377,61 +391,4 @@ export default function Home() {
               onDragLeave={() => setDragOver(false)}
               onDrop={handleDrop}
               className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-all ${dragOver ? 'border-blue-400 bg-blue-50' : file ? 'border-green-300 bg-green-50' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}>
-              <input ref={fileRef} type="file" className="hidden" accept="image/*,.pdf,.doc,.docx" onChange={e => handleFile(e.target.files[0])} />
-              {file ? (
-                <div className="flex items-center justify-center gap-2">
-                  <span className="text-green-600 text-sm font-medium">✓ {file.name}</span>
-                  <button onClick={e => { e.stopPropagation(); setFile(null) }} className="text-xs text-gray-400 hover:text-red-400 ml-2">Remove</button>
-                </div>
-              ) : (
-                <div>
-                  <p className="text-sm text-gray-400">Drag & drop or click to upload</p>
-                  <p className="text-xs text-gray-300 mt-1">JPG, PNG, PDF, DOC, DOCX · Handwritten OK</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Answer Key Toggle */}
-          <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
-            <div>
-              <p className="text-sm font-medium text-gray-700">Include Answer Key</p>
-              <p className="text-xs text-gray-400 mt-0.5">Answers added on a separate page after questions</p>
-            </div>
-            <button onClick={() => setIncludeAnswers(!includeAnswers)}
-              className={`relative w-11 h-6 rounded-full transition-all ${includeAnswers ? 'bg-blue-500' : 'bg-gray-200'}`}>
-              <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${includeAnswers ? 'translate-x-5' : ''}`} />
-            </button>
-          </div>
-
-          {/* Error / Status */}
-          {error && <p className="text-sm text-red-500 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
-          {status && (
-            <p className={`text-sm px-3 py-2 rounded-lg ${status.startsWith('✓') ? 'text-green-700 bg-green-50' : 'text-blue-600 bg-blue-50'}`}>
-              {!status.startsWith('✓') && <span className="inline-block mr-2 animate-spin">⏳</span>}
-              {status}
-            </p>
-          )}
-
-          {/* Download Buttons */}
-          <div className="grid grid-cols-3 gap-2">
-            <button onClick={() => handleGenerate('docx')} disabled={loading}
-              className="py-3 rounded-xl border border-gray-200 bg-white text-gray-700 text-sm font-medium hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all">
-              ↓ Word Doc
-            </button>
-            <button onClick={() => handleGenerate('pdf')} disabled={loading}
-              className="py-3 rounded-xl border border-gray-200 bg-white text-gray-700 text-sm font-medium hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all">
-              ↓ PDF
-            </button>
-            <button onClick={handleBoth} disabled={loading}
-              className="py-3 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all">
-              ↓ Both
-            </button>
-          </div>
-
-        </div>
-        <p className="text-center text-xs text-gray-400 mt-4">Powered by Claude AI · For tuition use</p>
-      </div>
-    </div>
-  )
-}
+              <input ref={fileRef} type="file" className="hidden" accept="image/*,.pdf,.doc,.doc
