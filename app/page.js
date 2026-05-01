@@ -391,4 +391,76 @@ export default function Home() {
               onDragLeave={() => setDragOver(false)}
               onDrop={handleDrop}
               className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-all ${dragOver ? 'border-blue-400 bg-blue-50' : file ? 'border-green-300 bg-green-50' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}>
-              <input ref={fileRef} type="file" className="hidden" accept="image/*,.pdf,.doc,.doc
+              <input ref={fileRef} type="file" className="hidden" accept="image/*,.pdf,.doc,.docx" onChange={e => handleFile(e.target.files[0])} />
+              {file ? (
+                <div className="flex items-center justify-center gap-2">
+                  <span className="text-green-600 text-sm font-medium">✓ {file.name}</span>
+                  <button onClick={e => { e.stopPropagation(); setFile(null) }} className="text-xs text-gray-400 hover:text-red-400 ml-2">Remove</button>
+                </div>
+              ) : (
+                <div>
+                  <p className="text-sm text-gray-400">Drag & drop or click to upload</p>
+                  <p className="text-xs text-gray-300 mt-1">JPG, PNG, PDF, DOC, DOCX · Handwritten OK</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Page Layout */}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Page Layout</label>
+            <div className="grid grid-cols-3 gap-3">
+              {LAYOUT_OPTIONS.map(l => (
+                <button key={l.val} onClick={() => setLayout(l.val)}
+                  className={`rounded-xl border-2 py-3 px-2 text-center transition-all ${layout === l.val ? 'border-gray-900 bg-gray-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
+                  <LayoutPreview val={l.val} />
+                  <p className={`text-xs font-medium ${layout === l.val ? 'text-gray-900' : 'text-gray-500'}`}>{l.label}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{l.sub}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Answer Key Toggle */}
+          <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
+            <div>
+              <p className="text-sm font-medium text-gray-700">Include Answer Key</p>
+              <p className="text-xs text-gray-400 mt-0.5">Answers added on a separate page after questions</p>
+            </div>
+            <button onClick={() => setIncludeAnswers(!includeAnswers)}
+              className={`relative w-11 h-6 rounded-full transition-all ${includeAnswers ? 'bg-blue-500' : 'bg-gray-200'}`}>
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${includeAnswers ? 'translate-x-5' : ''}`} />
+            </button>
+          </div>
+
+          {/* Error / Status */}
+          {error && <p className="text-sm text-red-500 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+          {status && (
+            <p className={`text-sm px-3 py-2 rounded-lg ${status.startsWith('✓') ? 'text-green-700 bg-green-50' : 'text-blue-600 bg-blue-50'}`}>
+              {!status.startsWith('✓') && <span className="inline-block mr-2 animate-spin">⏳</span>}
+              {status}
+            </p>
+          )}
+
+          {/* Download Buttons */}
+          <div className="grid grid-cols-3 gap-2">
+            <button onClick={() => handleGenerate('docx')} disabled={loading}
+              className="py-3 rounded-xl border border-gray-200 bg-white text-gray-700 text-sm font-medium hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all">
+              ↓ Word Doc
+            </button>
+            <button onClick={() => handleGenerate('pdf')} disabled={loading}
+              className="py-3 rounded-xl border border-gray-200 bg-white text-gray-700 text-sm font-medium hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all">
+              ↓ PDF
+            </button>
+            <button onClick={handleBoth} disabled={loading}
+              className="py-3 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all">
+              ↓ Both
+            </button>
+          </div>
+
+        </div>
+        <p className="text-center text-xs text-gray-400 mt-4">Powered by Claude AI · For tuition use</p>
+      </div>
+    </div>
+  )
+}
