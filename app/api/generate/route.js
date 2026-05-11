@@ -141,9 +141,43 @@ Output ONLY the numbered answers, one per line, no preamble.`,
     const pyPath = join(tmpdir(), `fix_${id}.py`)
 
     if (format === 'pdf') {
+      // Inject layout into markdown for PDF
+      let pdfMarkdown = questionsMarkdown
+      if (layout !== 'compact' && allSections.length > 0) {
+        let pdfLines = ''
+        for (let s = 0; s < allSections.length; s++) {
+          const section = allSections[s]
+          // Add page break before every section except the first
+          if (s > 0) pdfLines += '\n\n\\newpage\n\n'
+          pdfLines += `## ${section.title}\n\n`
+          // Split questions and inject layout breaks
+          const qLines = section.questions.split('\n')
+          let secQIdx = 0
+          let buf = ''
+          for (const line of qLines) {
+            const isQuestion = /^\d+\./.test(line.trim())
+            if (isQuestion && secQIdx > 0) {
+              if (layout === '1pp') {
+                buf += '\n\n\\newpage\n\n'
+              } else if (layout === '2pp') {
+                if (secQIdx % 2 === 1) {
+                  buf += '\n\n\\vspace{10cm}\n\n'
+                } else {
+                  buf += '\n\n\\newpage\n\n'
+                }
+              }
+            }
+            if (isQuestion) secQIdx++
+            buf += line + '\n'
+          }
+          pdfLines += buf
+        }
+        pdfMarkdown = `# ${level}\n\n${pdfLines}`
+      }
+
       const fullMd = answersMarkdown
-        ? `${questionsMarkdown}\n\n\\newpage\n\n${answersMarkdown}`
-        : questionsMarkdown
+        ? `${pdfMarkdown}\n\n\\newpage\n\n${answersMarkdown}`
+        : pdfMarkdown
       writeFileSync(mdQPath, fullMd, 'utf8')
       await execAsync(`pandoc "${mdQPath}" -o "${pdfPath}" --pdf-engine=xelatex`)
       const buffer = readFileSync(pdfPath)
