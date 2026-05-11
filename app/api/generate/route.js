@@ -31,38 +31,35 @@ export async function POST(req) {
     const includeAnswers = formData.get('includeAnswers') === 'true'
     const format = formData.get('format') || 'docx'
     const layout = formData.get('layout') || 'compact'
-    const selectedTopics = JSON.parse(formData.get('selectedTopics') || '[]')
+    const queue = JSON.parse(formData.get('queue') || '[]')
     const file = formData.get('file')
 
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
-    // Handle uploaded file
     let fileContent = null
     if (file && file.size > 0) {
       const arrayBuffer = await file.arrayBuffer()
       const base64 = Buffer.from(arrayBuffer).toString('base64')
       const mime = file.type
       if (mime.startsWith('image/')) {
-        const validMime = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mime) ? mime : 'image/jpeg'
+        const validMime = ['image/jpeg','image/png','image/gif','image/webp'].includes(mime) ? mime : 'image/jpeg'
         fileContent = { type: 'image', source: { type: 'base64', media_type: validMime, data: base64 } }
       } else if (mime === 'application/pdf') {
         fileContent = { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } }
       }
     }
 
-    // Generate questions for each topic separately then combine
     const allSections = []
     let questionNumber = 1
 
-    for (const topicEntry of selectedTopics) {
-      const { topic, subtopic, customDesc, count, imageUrl } = topicEntry
+    for (const item of queue) {
+      const { topic, subtopic, desc, imageUrl, count } = item
       const isCustom = topic === '__custom__'
-      const description = isCustom ? customDesc : (subtopic ? `${topic} — ${subtopic}` : topic)
-      const sectionTitle = isCustom ? 'Custom Questions' : (subtopic ? `${topic} (${subtopic})` : topic)
+      const sectionTitle = isCustom ? 'Custom' : (subtopic && subtopic !== 'Any subtopic' ? `${topic} — ${subtopic}` : topic)
+      const description = isCustom ? desc : (subtopic && subtopic !== 'Any subtopic' ? desc : topic)
 
       const messageContent = []
 
-      // Attach image if available for this topic
       if (imageUrl && !fileContent) {
         try {
           const directUrl = getDriveImageUrl(imageUrl)
@@ -72,7 +69,7 @@ export async function POST(req) {
               const imgBuffer = await imgRes.arrayBuffer()
               const base64 = Buffer.from(imgBuffer).toString('base64')
               const contentType = imgRes.headers.get('content-type') || 'image/jpeg'
-              const validMime = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(contentType) ? contentType : 'image/jpeg'
+              const validMime = ['image/jpeg','image/png','image/gif','image/webp'].includes(contentType) ? contentType : 'image/jpeg'
               messageContent.push({ type: 'image', source: { type: 'base64', media_type: validMime, data: base64 } })
             }
           }
@@ -90,7 +87,7 @@ ${extra ? `Extra instructions: ${extra}` : ''}
 ${messageContent.some(m => m.type === 'image') ? 'A sample image has been provided. Use it to understand the style and format required.' : ''}
 
 OUTPUT FORMAT — Markdown with LaTeX math:
-1. Number questions starting from ${questionNumber}. (e.g. ${questionNumber}., ${questionNumber+1}., ${questionNumber+2}.)
+1. Number questions starting from ${questionNumber}.
 2. Leave a blank line between questions.
 3. Write ALL math using inline LaTeX $...$ only — do NOT use $$...$$ display blocks.
 4. For fractions use \\dfrac{numerator}{denominator} e.g. $\\dfrac{x+1}{2}$
@@ -111,31 +108,27 @@ OUTPUT FORMAT — Markdown with LaTeX math:
       })
 
       const text = response.content.find(b => b.type === 'text')?.text || ''
-      allSections.push({ title: sectionTitle, questions: text, count })
+      allSections.push({ title: sectionTitle, questions: text, count: parseInt(count) })
       questionNumber += parseInt(count)
     }
 
-    // Build full markdown
     let questionsMarkdown = `# ${level}\n\n`
-    let answersMarkdown = includeAnswers ? `# Answer Key\n\n` : ''
-    let answerNumber = 1
-
     for (const section of allSections) {
       questionsMarkdown += `## ${section.title}\n\n${section.questions}\n\n`
     }
 
-    // Generate answers if needed
+    let answersMarkdown = ''
     if (includeAnswers && allSections.length > 0) {
       const fullQText = allSections.map(s => s.questions).join('\n\n')
       const answerResponse = await client.messages.create({
         model: 'claude-sonnet-4-6',
         max_tokens: 2000,
-        system: `You are a math teacher. Given these questions, provide final answers only — no working steps.
-Use inline LaTeX $...$ for all math. Number answers to match the question numbers exactly.
+        system: `You are a math teacher. Provide final answers only — no working steps.
+Use inline LaTeX $...$ for all math. Number answers to match question numbers exactly.
 Output ONLY the numbered answers, one per line, no preamble.`,
-        messages: [{ role: 'user', content: `Provide answers for these questions:\n\n${fullQText}` }]
+        messages: [{ role: 'user', content: `Provide answers for:\n\n${fullQText}` }]
       })
-      answersMarkdown += answerResponse.content.find(b => b.type === 'text')?.text || ''
+      answersMarkdown = `# Answer Key\n\n${answerResponse.content.find(b => b.type === 'text')?.text || ''}`
     }
 
     const id = Date.now()
@@ -147,9 +140,8 @@ Output ONLY the numbered answers, one per line, no preamble.`,
     const pdfPath = join(tmpdir(), `wfinal_${id}.pdf`)
     const pyPath = join(tmpdir(), `fix_${id}.py`)
 
-    // PDF branch
     if (format === 'pdf') {
-      const fullMd = includeAnswers && answersMarkdown
+      const fullMd = answersMarkdown
         ? `${questionsMarkdown}\n\n\\newpage\n\n${answersMarkdown}`
         : questionsMarkdown
       writeFileSync(mdQPath, fullMd, 'utf8')
@@ -165,11 +157,10 @@ Output ONLY the numbered answers, one per line, no preamble.`,
       })
     }
 
-    // Word doc branch
     writeFileSync(mdQPath, questionsMarkdown, 'utf8')
     await execAsync(`pandoc "${mdQPath}" -o "${docxQPath}" --mathml`)
 
-    if (includeAnswers && answersMarkdown) {
+    if (answersMarkdown) {
       writeFileSync(mdAPath, answersMarkdown, 'utf8')
       await execAsync(`pandoc "${mdAPath}" -o "${docxAPath}" --mathml`)
     }
@@ -276,7 +267,6 @@ repack(q_dir, '${docxFinalPath}')
 shutil.rmtree(q_dir)
 print('done')
 `
-
     writeFileSync(pyPath, pyScript, 'utf8')
     await execAsync(`python3 "${pyPath}"`)
     const buffer = readFileSync(docxFinalPath)
