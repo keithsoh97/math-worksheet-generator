@@ -161,7 +161,7 @@ Output ONLY the numbered answers, one per line, no preamble.`,
                 buf += '\n\n\\newpage\n\n'
               } else if (layout === '2pp') {
                 if (secQIdx % 2 === 1) {
-                  buf += '\n\n\\vspace{10cm}\n\n'
+                  buf += '\n\n\\vspace*{\\fill}\n\n'
                 } else {
                   buf += '\n\n\\newpage\n\n'
                 }
@@ -179,7 +179,7 @@ Output ONLY the numbered answers, one per line, no preamble.`,
         ? `${pdfMarkdown}\n\n\\newpage\n\n${answersMarkdown}`
         : pdfMarkdown
       writeFileSync(mdQPath, fullMd, 'utf8')
-      await execAsync(`pandoc "${mdQPath}" -o "${pdfPath}" --pdf-engine=xelatex`)
+      await execAsync(`pandoc "${mdQPath}" -o "${pdfPath}" --pdf-engine=xelatex -V geometry:margin=2cm -V indent=false`)
       const buffer = readFileSync(pdfPath)
       try { [mdQPath, pdfPath].forEach(f => { try { unlinkSync(f) } catch {} }) } catch {}
       return new Response(buffer, {
