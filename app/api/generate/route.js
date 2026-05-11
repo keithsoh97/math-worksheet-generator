@@ -26,108 +26,117 @@ export async function POST(req) {
   try {
     const formData = await req.formData()
     const level = formData.get('level') || 'Amath'
-    const count = formData.get('count') || '10'
     const difficulty = formData.get('difficulty') || 'mixed'
     const extra = formData.get('extra') || ''
-    const description = formData.get('description') || ''
     const includeAnswers = formData.get('includeAnswers') === 'true'
     const format = formData.get('format') || 'docx'
     const layout = formData.get('layout') || 'compact'
-    const sampleImageUrl = formData.get('sampleImageUrl') || ''
+    const selectedTopics = JSON.parse(formData.get('selectedTopics') || '[]')
     const file = formData.get('file')
 
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-    const messageContent = []
 
+    // Handle uploaded file
+    let fileContent = null
     if (file && file.size > 0) {
       const arrayBuffer = await file.arrayBuffer()
       const base64 = Buffer.from(arrayBuffer).toString('base64')
       const mime = file.type
       if (mime.startsWith('image/')) {
         const validMime = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mime) ? mime : 'image/jpeg'
-        messageContent.push({ type: 'image', source: { type: 'base64', media_type: validMime, data: base64 } })
+        fileContent = { type: 'image', source: { type: 'base64', media_type: validMime, data: base64 } }
       } else if (mime === 'application/pdf') {
-        messageContent.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } })
+        fileContent = { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } }
       }
     }
 
-    if (sampleImageUrl && (!file || file.size === 0)) {
-      try {
-        const directUrl = getDriveImageUrl(sampleImageUrl)
-        if (directUrl) {
-          const imgRes = await fetch(directUrl)
-          if (imgRes.ok) {
-            const imgBuffer = await imgRes.arrayBuffer()
-            const base64 = Buffer.from(imgBuffer).toString('base64')
-            const contentType = imgRes.headers.get('content-type') || 'image/jpeg'
-            const validMime = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(contentType) ? contentType : 'image/jpeg'
-            messageContent.push({ type: 'image', source: { type: 'base64', media_type: validMime, data: base64 } })
+    // Generate questions for each topic separately then combine
+    const allSections = []
+    let questionNumber = 1
+
+    for (const topicEntry of selectedTopics) {
+      const { topic, subtopic, customDesc, count, imageUrl } = topicEntry
+      const isCustom = topic === '__custom__'
+      const description = isCustom ? customDesc : (subtopic ? `${topic} — ${subtopic}` : topic)
+      const sectionTitle = isCustom ? 'Custom Questions' : (subtopic ? `${topic} (${subtopic})` : topic)
+
+      const messageContent = []
+
+      // Attach image if available for this topic
+      if (imageUrl && !fileContent) {
+        try {
+          const directUrl = getDriveImageUrl(imageUrl)
+          if (directUrl) {
+            const imgRes = await fetch(directUrl)
+            if (imgRes.ok) {
+              const imgBuffer = await imgRes.arrayBuffer()
+              const base64 = Buffer.from(imgBuffer).toString('base64')
+              const contentType = imgRes.headers.get('content-type') || 'image/jpeg'
+              const validMime = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(contentType) ? contentType : 'image/jpeg'
+              messageContent.push({ type: 'image', source: { type: 'base64', media_type: validMime, data: base64 } })
+            }
           }
-        }
-      } catch (e) {
-        console.error('Failed to fetch sample image:', e)
+        } catch (e) { console.error('Failed to fetch topic image:', e) }
       }
-    }
 
-    const systemPrompt = `You are a Singapore math tuition teacher generating practice questions for ${level} students.
+      if (fileContent) messageContent.push(fileContent)
 
-Generate exactly ${count} numbered math practice questions.
+      const systemPrompt = `You are a Singapore math tuition teacher generating practice questions for ${level} students.
+
+Generate exactly ${count} numbered math practice questions about: ${description}.
+Start numbering from ${questionNumber}.
 Difficulty: ${DIFFICULTY_LABELS[difficulty] || 'even mix'}.
 ${extra ? `Extra instructions: ${extra}` : ''}
-${messageContent.some(m => m.type === 'image') ? 'A sample image of questions has been provided. Use it to understand the style, format, and difficulty level required.' : ''}
+${messageContent.some(m => m.type === 'image') ? 'A sample image has been provided. Use it to understand the style and format required.' : ''}
 
-OUTPUT FORMAT — Markdown with LaTeX math. Follow these rules exactly:
-
-1. Number each question: "1.", "2." etc.
+OUTPUT FORMAT — Markdown with LaTeX math:
+1. Number questions starting from ${questionNumber}. (e.g. ${questionNumber}., ${questionNumber+1}., ${questionNumber+2}.)
 2. Leave a blank line between questions.
 3. Write ALL math using inline LaTeX $...$ only — do NOT use $$...$$ display blocks.
 4. For fractions use \\dfrac{numerator}{denominator} e.g. $\\dfrac{x+1}{2}$
 5. For square roots use \\sqrt{...}
 6. For powers use ^{...} e.g. x^{2}, (2x+1)^{3}
-7. For whole fraction raised to a power: {\\left(\\dfrac{a}{b}\\right)^{2}}
-8. BRACKET NESTING ORDER — innermost to outermost: ( ) then [ ] then { }
-   - Use \\left( \\right) for innermost brackets
-   - Use \\left[ \\right] for next level
-   - Use \\left\\{ \\right\\} for outermost
-9. Always use \\left and \\right before every bracket so they auto-size.
-10. For multiplication between fractions use \\times
-11. Do NOT include answers in the questions section.
-12. Output ONLY the numbered questions in Markdown+LaTeX — no preamble, no headers, no explanation.
+7. BRACKET NESTING: \\left( \\right) innermost, \\left[ \\right] next, \\left\\{ \\right\\} outermost.
+8. Always use \\left and \\right before every bracket.
+9. For multiplication between fractions use \\times
+10. Output ONLY the numbered questions — no preamble, no headers, no explanation.`
 
-${includeAnswers ? `AFTER all ${count} questions, output the following marker on its own line with nothing before or after it:
-ANSWER_KEY_START
-Then immediately list answers as a numbered list 1. to ${count}. Rules:
-- Final answer ONLY — no working steps, no explanation
-- Use the same inline LaTeX $...$ formatting
-- One answer per line` : ''}`
+      messageContent.push({ type: 'text', text: `Generate ${count} questions about: ${description}` })
 
-    const userText = description
-      ? `${description}\n\nGenerate ${count} questions as described.`
-      : `Generate ${count} math practice questions for ${level} based on the uploaded sample.`
+      const response = await client.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 2000,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: messageContent }]
+      })
 
-    messageContent.push({ type: 'text', text: userText })
-
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 4000,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: messageContent }]
-    })
-
-    const markdownText = response.content.find(b => b.type === 'text')?.text || ''
-    if (!markdownText) throw new Error('No questions generated')
-
-    let questionsSection = markdownText
-    let answersSection = ''
-
-    if (includeAnswers && markdownText.includes('ANSWER_KEY_START')) {
-      const parts = markdownText.split('ANSWER_KEY_START')
-      questionsSection = parts[0].trim()
-      answersSection = parts[1] ? parts[1].trim() : ''
+      const text = response.content.find(b => b.type === 'text')?.text || ''
+      allSections.push({ title: sectionTitle, questions: text, count })
+      questionNumber += parseInt(count)
     }
 
-    const questionsMarkdown = `# ${level}\n\n${questionsSection}`
-    const answersMarkdown = answersSection ? `# Answer Key\n\n${answersSection}` : ''
+    // Build full markdown
+    let questionsMarkdown = `# ${level}\n\n`
+    let answersMarkdown = includeAnswers ? `# Answer Key\n\n` : ''
+    let answerNumber = 1
+
+    for (const section of allSections) {
+      questionsMarkdown += `## ${section.title}\n\n${section.questions}\n\n`
+    }
+
+    // Generate answers if needed
+    if (includeAnswers && allSections.length > 0) {
+      const fullQText = allSections.map(s => s.questions).join('\n\n')
+      const answerResponse = await client.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 2000,
+        system: `You are a math teacher. Given these questions, provide final answers only — no working steps.
+Use inline LaTeX $...$ for all math. Number answers to match the question numbers exactly.
+Output ONLY the numbered answers, one per line, no preamble.`,
+        messages: [{ role: 'user', content: `Provide answers for these questions:\n\n${fullQText}` }]
+      })
+      answersMarkdown += answerResponse.content.find(b => b.type === 'text')?.text || ''
+    }
 
     const id = Date.now()
     const mdQPath = join(tmpdir(), `wq_${id}.md`)
@@ -140,7 +149,7 @@ Then immediately list answers as a numbered list 1. to ${count}. Rules:
 
     // PDF branch
     if (format === 'pdf') {
-      const fullMd = answersMarkdown
+      const fullMd = includeAnswers && answersMarkdown
         ? `${questionsMarkdown}\n\n\\newpage\n\n${answersMarkdown}`
         : questionsMarkdown
       writeFileSync(mdQPath, fullMd, 'utf8')
@@ -160,7 +169,7 @@ Then immediately list answers as a numbered list 1. to ${count}. Rules:
     writeFileSync(mdQPath, questionsMarkdown, 'utf8')
     await execAsync(`pandoc "${mdQPath}" -o "${docxQPath}" --mathml`)
 
-    if (answersMarkdown) {
+    if (includeAnswers && answersMarkdown) {
       writeFileSync(mdAPath, answersMarkdown, 'utf8')
       await execAsync(`pandoc "${mdAPath}" -o "${docxAPath}" --mathml`)
     }
