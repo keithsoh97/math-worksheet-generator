@@ -161,7 +161,7 @@ Output ONLY the numbered answers, one per line, no preamble.`,
                 buf += '\n\n\\newpage\n\n'
               } else if (layout === '2pp') {
                 if (secQIdx % 2 === 1) {
-                  buf += '\n\n\\vspace*{\\fill}\n\n'
+                  buf += '\n\n\\vspace{12cm}\n\n'
                 } else {
                   buf += '\n\n\\newpage\n\n'
                 }
