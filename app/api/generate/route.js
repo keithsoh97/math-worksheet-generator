@@ -203,29 +203,53 @@ def fix_spacing(content):
 PAGE_BREAK = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>'
 HALF_PAGE_SPACER = '<w:p><w:pPr><w:spacing w:before="5760" w:after="0"/></w:pPr></w:p>'
 
+def is_heading2(para):
+    return bool(re.search(r'<w:pStyle w:val="Heading2"', para))
+
 def inject_layout(content, layout):
     paras = re.findall(r'<w:p[ >].*?</w:p>', content, re.DOTALL)
-    question_indices = [i for i, p in enumerate(paras) if '<w:numPr>' in p]
-    if layout == 'compact' or not question_indices:
-        return content
-    result = list(paras)
+    rebuilt = list(paras)
     offset = 0
-    for idx, qi in enumerate(question_indices):
-        adjusted = qi + offset
-        if layout == '1pp':
-            if idx > 0:
-                result.insert(adjusted, PAGE_BREAK)
-                offset += 1
-        elif layout == '2pp':
-            if idx == 0:
-                continue
-            elif idx % 2 == 1:
-                result.insert(adjusted, HALF_PAGE_SPACER)
-                offset += 1
+
+    # Step 1: always page break before each Heading2 except the first
+    heading2_indices = [i for i, p in enumerate(paras) if is_heading2(p)]
+    for idx, hi in enumerate(heading2_indices):
+        if idx == 0:
+            continue
+        adjusted = hi + offset
+        rebuilt.insert(adjusted, PAGE_BREAK)
+        offset += 1
+
+    if layout == 'compact':
+        new_body = ''.join(rebuilt)
+        return re.sub(r'<w:body>.*</w:body>', f'<w:body>{new_body}</w:body>', content, flags=re.DOTALL)
+
+    # Step 2: within each section apply 1pp or 2pp layout
+    i = 0
+    sec_q_idx = 0
+    while i < len(rebuilt):
+        para = rebuilt[i]
+        if is_heading2(para) or para == PAGE_BREAK:
+            sec_q_idx = 0
+            i += 1
+            continue
+        if '<w:numPr>' not in para:
+            i += 1
+            continue
+        if layout == '1pp' and sec_q_idx > 0:
+            rebuilt.insert(i, PAGE_BREAK)
+            i += 2
+        elif layout == '2pp' and sec_q_idx > 0:
+            if sec_q_idx % 2 == 1:
+                rebuilt.insert(i, HALF_PAGE_SPACER)
             else:
-                result.insert(adjusted, PAGE_BREAK)
-                offset += 1
-    new_body = ''.join(result)
+                rebuilt.insert(i, PAGE_BREAK)
+            i += 2
+        else:
+            i += 1
+        sec_q_idx += 1
+
+    new_body = ''.join(rebuilt)
     return re.sub(r'<w:body>.*</w:body>', f'<w:body>{new_body}</w:body>', content, flags=re.DOTALL)
 
 def fix_answer_para(content):
