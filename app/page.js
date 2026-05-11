@@ -37,7 +37,9 @@ export default function Home() {
   const [showHistory, setShowHistory] = useState(false)
   const [topicData, setTopicData] = useState({})
   const [topicsLoading, setTopicsLoading] = useState(true)
-  const [selectedTopics, setSelectedTopics] = useState([])
+  const [activeTopic, setActiveTopic] = useState(null)
+  const [queue, setQueue] = useState([])
+  const [customText, setCustomText] = useState('')
   const fileRef = useRef()
 
   useEffect(() => {
@@ -68,7 +70,7 @@ export default function Home() {
     fetchTopics()
   }, [])
 
-  useEffect(() => { setSelectedTopics([]) }, [level])
+  useEffect(() => { setQueue([]); setActiveTopic(null) }, [level])
 
   useEffect(() => {
     try {
@@ -90,8 +92,7 @@ export default function Home() {
   const loadFromHistory = (entry) => {
     setLevel(entry.level); setDifficulty(entry.difficulty)
     setExtra(entry.extra || ''); setIncludeAnswers(entry.includeAnswers || false)
-    setLayout(entry.layout || 'compact')
-    setSelectedTopics(entry.selectedTopics || [])
+    setLayout(entry.layout || 'compact'); setQueue(entry.queue || [])
     setShowHistory(false)
   }
 
@@ -105,41 +106,42 @@ export default function Home() {
 
   const handleDrop = (e) => { e.preventDefault(); setDragOver(false); handleFile(e.dataTransfer.files[0]) }
 
-  const isTopicSelected = (topic) => selectedTopics.some(t => t.topic === topic)
-
-  const toggleTopic = (topic) => {
-    if (isTopicSelected(topic)) {
-      setSelectedTopics(prev => prev.filter(t => t.topic !== topic))
-    } else {
-      setSelectedTopics(prev => [...prev, { topic, subtopic: '', customDesc: '', count: 5 }])
-    }
+  const addToQueue = (topic, subtopic, desc, imageUrl) => {
+    const id = Date.now() + Math.random()
+    setQueue(prev => [...prev, { id, topic, subtopic, desc, imageUrl: imageUrl || '', count: 5 }])
   }
 
-  const updateTopicField = (topic, field, value) => {
-    setSelectedTopics(prev => prev.map(t => t.topic === topic ? { ...t, [field]: value } : t))
+  const addCustomToQueue = () => {
+    if (!customText.trim()) return
+    const id = Date.now() + Math.random()
+    setQueue(prev => [...prev, { id, topic: '__custom__', subtopic: '', desc: customText.trim(), imageUrl: '', count: 5 }])
+    setCustomText('')
   }
 
-  const totalQuestions = selectedTopics.reduce((sum, t) => sum + (parseInt(t.count) || 0), 0)
+  const removeFromQueue = (id) => setQueue(prev => prev.filter(q => q.id !== id))
+
+  const updateQueueCount = (id, count) => {
+    setQueue(prev => prev.map(q => q.id === id ? { ...q, count: parseInt(count) || 1 } : q))
+  }
+
+  const totalQuestions = queue.reduce((sum, q) => sum + (parseInt(q.count) || 0), 0)
+  const currentTopics = topicData[level] || {}
+  const activeSubtopics = activeTopic && activeTopic !== '__custom__' ? currentTopics[activeTopic] || {} : {}
 
   const handleGenerate = async (fmt) => {
-    if (selectedTopics.length === 0 && !file) { setError('Please select at least one topic.'); return }
-    if (selectedTopics.length > 0 && totalQuestions === 0) { setError('Please set at least 1 question per topic.'); return }
+    if (queue.length === 0 && !file) { setError('Please add at least one topic to the queue.'); return }
     setLoading(true); setError(''); setStatus('Reading your input...')
     try {
       const formData = new FormData()
-      formData.append('level', level)
-      formData.append('difficulty', difficulty)
+      formData.append('level', level); formData.append('difficulty', difficulty)
       formData.append('extra', extra)
       formData.append('includeAnswers', includeAnswers ? 'true' : 'false')
-      formData.append('format', fmt)
-      formData.append('layout', layout)
-      formData.append('selectedTopics', JSON.stringify(selectedTopics))
+      formData.append('format', fmt); formData.append('layout', layout)
+      formData.append('queue', JSON.stringify(queue))
       if (file) formData.append('file', file)
-
       setStatus('Generating questions with AI...')
       const res = await fetch('/api/generate', { method: 'POST', body: formData })
       if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Something went wrong') }
-
       setStatus('Building your document...')
       const blob = await res.blob()
       const ext = fmt === 'pdf' ? 'pdf' : 'docx'
@@ -147,26 +149,24 @@ export default function Home() {
       const a = document.createElement('a')
       a.href = url; a.download = `${level}_Worksheet.${ext}`; a.click()
       URL.revokeObjectURL(url)
-      saveToHistory({ id: Date.now(), date: new Date().toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }), level, difficulty, extra, includeAnswers, layout, selectedTopics })
+      saveToHistory({ id: Date.now(), date: new Date().toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }), level, difficulty, extra, includeAnswers, layout, queue })
       setStatus(`✓ Done! Your ${ext.toUpperCase()} has been downloaded.`)
     } catch (e) { setError(e.message); setStatus('') }
     setLoading(false)
   }
 
   const handleBoth = async () => {
-    if (selectedTopics.length === 0 && !file) { setError('Please select at least one topic.'); return }
+    if (queue.length === 0 && !file) { setError('Please add at least one topic to the queue.'); return }
     setLoading(true); setError('')
     try {
       for (const fmt of ['docx', 'pdf']) {
         setStatus(`Generating ${fmt === 'docx' ? 'Word Doc' : 'PDF'}...`)
         const formData = new FormData()
-        formData.append('level', level)
-        formData.append('difficulty', difficulty)
+        formData.append('level', level); formData.append('difficulty', difficulty)
         formData.append('extra', extra)
         formData.append('includeAnswers', includeAnswers ? 'true' : 'false')
-        formData.append('format', fmt)
-        formData.append('layout', layout)
-        formData.append('selectedTopics', JSON.stringify(selectedTopics))
+        formData.append('format', fmt); formData.append('layout', layout)
+        formData.append('queue', JSON.stringify(queue))
         if (file) formData.append('file', file)
         const res = await fetch('/api/generate', { method: 'POST', body: formData })
         if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Something went wrong') }
@@ -176,14 +176,13 @@ export default function Home() {
         a.href = url; a.download = `${level}_Worksheet.${fmt}`; a.click()
         URL.revokeObjectURL(url)
       }
-      saveToHistory({ id: Date.now(), date: new Date().toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }), level, difficulty, extra, includeAnswers, layout, selectedTopics })
+      saveToHistory({ id: Date.now(), date: new Date().toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }), level, difficulty, extra, includeAnswers, layout, queue })
       setStatus('✓ Done! Both files downloaded.')
     } catch (e) { setError(e.message); setStatus('') }
     setLoading(false)
   }
 
   const diffLabel = { 'easy':'Easy only','mixed-easy':'Mostly easy','mixed':'Even mix','mixed-hard':'Mostly hard','hard':'Hard only' }
-  const currentTopics = topicData[level] || {}
 
   const LayoutPreview = ({ val }) => {
     if (val === 'compact') return (
@@ -215,7 +214,7 @@ export default function Home() {
         <div className="flex items-start justify-between mb-8">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Math Worksheet Generator</h1>
-            <p className="text-sm text-gray-500 mt-1">Select topics, set question counts, download as Word or PDF.</p>
+            <p className="text-sm text-gray-500 mt-1">Build your question queue, set counts, download as Word or PDF.</p>
           </div>
           <button onClick={() => setShowHistory(!showHistory)}
             className="relative flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white hover:bg-gray-50 text-gray-600">
@@ -240,12 +239,12 @@ export default function Home() {
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <p className="text-sm font-medium text-gray-800 group-hover:text-blue-700 leading-snug">
-                          {entry.selectedTopics?.map(t => t.topic).join(', ') || 'No topics'}
+                          {entry.queue?.map(q => q.topic === '__custom__' ? 'Custom' : `${q.topic}${q.subtopic && q.subtopic !== 'Any subtopic' ? ` (${q.subtopic})` : ''}`).join(', ') || 'No topics'}
                         </p>
                         <div className="flex items-center gap-2 mt-1 flex-wrap">
                           <span className="text-xs text-gray-400">{entry.level}</span>
                           <span className="text-xs text-gray-300">·</span>
-                          <span className="text-xs text-gray-400">{entry.selectedTopics?.reduce((s,t) => s + (t.count||0), 0)} Qs</span>
+                          <span className="text-xs text-gray-400">{entry.queue?.reduce((s,q) => s+(parseInt(q.count)||0), 0)} Qs</span>
                           <span className="text-xs text-gray-300">·</span>
                           <span className="text-xs text-gray-400">{diffLabel[entry.difficulty]}</span>
                           {entry.includeAnswers && <span className="text-xs bg-green-100 text-green-600 px-1.5 py-0.5 rounded-full">+ Answers</span>}
@@ -288,87 +287,99 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Topic Selector */}
+          {/* Topic Queue Builder */}
           <div>
             <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">
-              Topics <span className="normal-case font-normal text-gray-400">— select one or more</span>
+              Question Queue <span className="normal-case font-normal text-gray-400">— click topic → subtopic to add</span>
             </label>
             <div className="border border-gray-200 rounded-xl p-3">
               {topicsLoading ? (
-                <p className="text-sm text-gray-400 text-center py-2">⏳ Loading topics from sheet...</p>
+                <p className="text-sm text-gray-400 text-center py-2">⏳ Loading topics...</p>
               ) : Object.keys(currentTopics).length === 0 ? (
                 <p className="text-sm text-gray-400 text-center py-2">No topics found. Check your Google Sheet is set to public.</p>
               ) : (
                 <>
-                  {/* Topic chips */}
+                  {/* Step 1 topic chips */}
+                  <p className="text-xs text-gray-400 mb-2">Step 1 — Select a topic:</p>
                   <div className="flex flex-wrap gap-2 mb-3">
                     {Object.keys(currentTopics).map(topic => (
-                      <button key={topic} onClick={() => toggleTopic(topic)}
-                        className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${isTopicSelected(topic) ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}`}>
-                        {isTopicSelected(topic) ? '✓ ' : '+ '}{topic}
+                      <button key={topic} onClick={() => setActiveTopic(activeTopic === topic ? null : topic)}
+                        className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${activeTopic === topic ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}`}>
+                        {topic}
                       </button>
                     ))}
-                    <button onClick={() => toggleTopic('__custom__')}
-                      className={`px-3 py-1.5 rounded-full text-xs font-medium border border-dashed transition-all ${isTopicSelected('__custom__') ? 'bg-yellow-50 text-yellow-700 border-yellow-300' : 'bg-white text-gray-400 border-gray-300 hover:bg-yellow-50 hover:text-yellow-600 hover:border-yellow-300'}`}>
-                      {isTopicSelected('__custom__') ? '✓ ' : ''}✏️ Custom
+                    <button onClick={() => setActiveTopic(activeTopic === '__custom__' ? null : '__custom__')}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium border border-dashed transition-all ${activeTopic === '__custom__' ? 'bg-yellow-50 text-yellow-700 border-yellow-300' : 'bg-white text-gray-400 border-gray-300 hover:bg-yellow-50 hover:text-yellow-600 hover:border-yellow-300'}`}>
+                      ✏️ Custom
                     </button>
                   </div>
 
-                  {/* Selected topic cards */}
-                  {selectedTopics.length > 0 && (
-                    <div className="space-y-3 border-t border-gray-100 pt-3">
-                      {selectedTopics.map(({ topic, subtopic, customDesc, count }) => (
-                        <div key={topic} className="bg-gray-50 rounded-xl border border-gray-100 p-3">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm font-semibold text-gray-800">
-                              {topic === '__custom__' ? '✏️ Custom Topic' : `📘 ${topic}`}
-                            </span>
-                            <button onClick={() => toggleTopic(topic)} className="text-xs text-red-400 hover:text-red-600">✕ Remove</button>
-                          </div>
-
-                          {topic === '__custom__' ? (
-                            <textarea
-                              value={customDesc}
-                              onChange={e => updateTopicField(topic, 'customDesc', e.target.value)}
-                              placeholder="Describe what you want e.g. Differentiation Quotient Rule with surds in numerator..."
-                              rows={2}
-                              className="w-full border border-yellow-300 rounded-lg px-3 py-2 text-sm text-gray-800 focus:outline-none resize-none bg-yellow-50 mb-2" />
-                          ) : (
-                            <div className="flex flex-wrap gap-1.5 mb-2">
-                              <button
-                                onClick={() => updateTopicField(topic, 'subtopic', '')}
-                                className={`px-2.5 py-1 rounded-full text-xs border transition-all ${subtopic === '' ? 'bg-blue-50 text-blue-700 border-blue-200 font-medium' : 'bg-white text-gray-400 border-gray-200 hover:bg-gray-50'}`}>
-                                Any subtopic
-                              </button>
-                              {Object.keys(currentTopics[topic] || {}).map(sub => (
-                                <button key={sub}
-                                  onClick={() => updateTopicField(topic, 'subtopic', sub)}
-                                  className={`px-2.5 py-1 rounded-full text-xs border transition-all ${subtopic === sub ? 'bg-green-50 text-green-700 border-green-200 font-medium' : 'bg-white text-gray-400 border-dashed border-gray-300 hover:bg-gray-50'}`}>
-                                  {sub}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-gray-500">No. of questions:</span>
-                            <input type="number" min={1} max={20} value={count}
-                              onChange={e => updateTopicField(topic, 'count', parseInt(e.target.value) || 1)}
-                              className="w-16 border border-gray-200 rounded-lg px-2 py-1 text-sm text-center focus:outline-none focus:border-gray-400" />
-                          </div>
-                        </div>
-                      ))}
-
-                      {/* Total summary */}
-                      <div className="flex items-center justify-between bg-blue-50 rounded-xl px-3 py-2">
-                        <span className="text-xs text-blue-600">Total questions</span>
-                        <span className="text-sm font-bold text-blue-700">{totalQuestions} across {selectedTopics.length} topic{selectedTopics.length > 1 ? 's' : ''}</span>
+                  {/* Step 2 subtopics */}
+                  {activeTopic && activeTopic !== '__custom__' && (
+                    <div className="bg-gray-50 rounded-xl p-3 mb-3">
+                      <p className="text-xs text-gray-400 mb-2">Step 2 — Pick a subtopic to add to queue:</p>
+                      <div className="flex flex-wrap gap-2">
+                        <button onClick={() => addToQueue(activeTopic, 'Any subtopic', activeTopic, '')}
+                          className="px-3 py-1 rounded-full text-xs border bg-blue-50 text-blue-600 border-blue-200 font-medium hover:bg-blue-100">
+                          + Any subtopic
+                        </button>
+                        {Object.entries(activeSubtopics).map(([sub, val]) => (
+                          <button key={sub} onClick={() => addToQueue(activeTopic, sub, val.desc, val.imageUrl)}
+                            className="px-3 py-1 rounded-full text-xs border border-dashed border-gray-300 bg-white text-gray-500 hover:bg-gray-100 transition-all">
+                            + {sub}
+                          </button>
+                        ))}
                       </div>
                     </div>
                   )}
 
-                  {selectedTopics.length === 0 && (
-                    <p className="text-xs text-gray-400 text-center py-1">No topics selected yet — click a topic above to add it</p>
+                  {/* Custom input */}
+                  {activeTopic === '__custom__' && (
+                    <div className="bg-yellow-50 rounded-xl p-3 mb-3 border border-yellow-200">
+                      <p className="text-xs text-yellow-700 mb-2">Describe what you want:</p>
+                      <textarea value={customText} onChange={e => setCustomText(e.target.value)}
+                        placeholder="e.g. Quotient Rule with surds in numerator, requiring simplification..."
+                        rows={2}
+                        className="w-full border border-yellow-300 rounded-lg px-3 py-2 text-sm text-gray-800 focus:outline-none resize-none bg-white mb-2" />
+                      <button onClick={addCustomToQueue}
+                        className="px-4 py-1.5 rounded-lg bg-gray-900 text-white text-xs font-medium hover:bg-gray-700">
+                        + Add to queue
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Queue list */}
+                  {queue.length > 0 ? (
+                    <div className="space-y-2 border-t border-gray-100 pt-3">
+                      {queue.map((item) => (
+                        <div key={item.id} className="flex items-center gap-3 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2.5">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-gray-800 truncate">
+                              {item.topic === '__custom__' ? '✏️ Custom' : item.topic}
+                            </p>
+                            <p className="text-xs text-blue-600 truncate">
+                              {item.topic === '__custom__' ? item.desc : item.subtopic}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className="text-xs text-gray-400">Qs:</span>
+                            <input type="number" min={1} max={20} value={item.count}
+                              onChange={e => updateQueueCount(item.id, e.target.value)}
+                              className="w-12 border border-gray-200 rounded-lg px-1.5 py-1 text-sm text-center focus:outline-none focus:border-gray-400" />
+                          </div>
+                          <button onClick={() => removeFromQueue(item.id)}
+                            className="text-gray-300 hover:text-red-400 text-xl leading-none shrink-0">×</button>
+                        </div>
+                      ))}
+                      <div className="flex items-center justify-between bg-blue-50 rounded-xl px-3 py-2">
+                        <span className="text-xs text-blue-600">Total questions</span>
+                        <span className="text-sm font-bold text-blue-700">{totalQuestions} across {queue.length} section{queue.length !== 1 ? 's' : ''}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-300 text-center py-2 border-t border-gray-100 pt-3">
+                      Queue is empty — select a topic and subtopic above to add
+                    </p>
                   )}
                 </>
               )}
@@ -378,7 +389,7 @@ export default function Home() {
           {/* Remarks */}
           <div>
             <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">
-              Remarks <span className="normal-case font-normal text-gray-400">(optional — applies to all topics)</span>
+              Remarks <span className="normal-case font-normal text-gray-400">(optional — applies to all sections)</span>
             </label>
             <textarea value={extra} onChange={e => setExtra(e.target.value)}
               placeholder="e.g. Avoid negative coefficients. Keep denominators simple."
