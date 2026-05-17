@@ -2,11 +2,11 @@
 import { useState, useRef, useEffect } from 'react'
 
 const DIFFICULTY_OPTIONS = [
-  { val: 'easy', label: 'Easy only' },
+  { val: 'easy', label: 'Easy' },
   { val: 'mixed-easy', label: 'Mostly easy' },
   { val: 'mixed', label: 'Even mix' },
   { val: 'mixed-hard', label: 'Mostly hard' },
-  { val: 'hard', label: 'Hard only' },
+  { val: 'hard', label: 'Hard' },
 ]
 
 const LEVELS = [
@@ -24,7 +24,6 @@ const SHEET_ID = '1OnBUAPbVgeiTchJXuYbOcjH3Dq95idgyfCiJYWXSMxc'
 
 export default function Home() {
   const [level, setLevel] = useState('Amath')
-  const [difficulty, setDifficulty] = useState('mixed-easy')
   const [extra, setExtra] = useState('')
   const [file, setFile] = useState(null)
   const [includeAnswers, setIncludeAnswers] = useState(false)
@@ -90,7 +89,7 @@ export default function Home() {
   const clearHistory = () => { setHistory([]); localStorage.removeItem('worksheet_history') }
 
   const loadFromHistory = (entry) => {
-    setLevel(entry.level); setDifficulty(entry.difficulty)
+    setLevel(entry.level)
     setExtra(entry.extra || ''); setIncludeAnswers(entry.includeAnswers || false)
     setLayout(entry.layout || 'compact'); setQueue(entry.queue || [])
     setShowHistory(false)
@@ -108,20 +107,20 @@ export default function Home() {
 
   const addToQueue = (topic, subtopic, desc, imageUrl) => {
     const id = Date.now() + Math.random()
-    setQueue(prev => [...prev, { id, topic, subtopic, desc, imageUrl: imageUrl || '', count: 5 }])
+    setQueue(prev => [...prev, { id, topic, subtopic, desc, imageUrl: imageUrl || '', count: 5, difficulty: 'mixed-easy' }])
   }
 
   const addCustomToQueue = () => {
     if (!customText.trim()) return
     const id = Date.now() + Math.random()
-    setQueue(prev => [...prev, { id, topic: '__custom__', subtopic: '', desc: customText.trim(), imageUrl: '', count: 5 }])
+    setQueue(prev => [...prev, { id, topic: '__custom__', subtopic: '', desc: customText.trim(), imageUrl: '', count: 5, difficulty: 'mixed-easy' }])
     setCustomText('')
   }
 
   const removeFromQueue = (id) => setQueue(prev => prev.filter(q => q.id !== id))
 
-  const updateQueueCount = (id, count) => {
-    setQueue(prev => prev.map(q => q.id === id ? { ...q, count: parseInt(count) || 1 } : q))
+  const updateQueueItem = (id, field, value) => {
+    setQueue(prev => prev.map(q => q.id === id ? { ...q, [field]: value } : q))
   }
 
   const totalQuestions = queue.reduce((sum, q) => sum + (parseInt(q.count) || 0), 0)
@@ -133,10 +132,11 @@ export default function Home() {
     setLoading(true); setError(''); setStatus('Reading your input...')
     try {
       const formData = new FormData()
-      formData.append('level', level); formData.append('difficulty', difficulty)
+      formData.append('level', level)
       formData.append('extra', extra)
       formData.append('includeAnswers', includeAnswers ? 'true' : 'false')
-      formData.append('format', fmt); formData.append('layout', layout)
+      formData.append('format', fmt)
+      formData.append('layout', layout)
       formData.append('queue', JSON.stringify(queue))
       if (file) formData.append('file', file)
       setStatus('Generating questions with AI...')
@@ -149,7 +149,7 @@ export default function Home() {
       const a = document.createElement('a')
       a.href = url; a.download = `${level}_Worksheet.${ext}`; a.click()
       URL.revokeObjectURL(url)
-      saveToHistory({ id: Date.now(), date: new Date().toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }), level, difficulty, extra, includeAnswers, layout, queue })
+      saveToHistory({ id: Date.now(), date: new Date().toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }), level, extra, includeAnswers, layout, queue })
       setStatus(`✓ Done! Your ${ext.toUpperCase()} has been downloaded.`)
     } catch (e) { setError(e.message); setStatus('') }
     setLoading(false)
@@ -162,10 +162,11 @@ export default function Home() {
       for (const fmt of ['docx', 'pdf']) {
         setStatus(`Generating ${fmt === 'docx' ? 'Word Doc' : 'PDF'}...`)
         const formData = new FormData()
-        formData.append('level', level); formData.append('difficulty', difficulty)
+        formData.append('level', level)
         formData.append('extra', extra)
         formData.append('includeAnswers', includeAnswers ? 'true' : 'false')
-        formData.append('format', fmt); formData.append('layout', layout)
+        formData.append('format', fmt)
+        formData.append('layout', layout)
         formData.append('queue', JSON.stringify(queue))
         if (file) formData.append('file', file)
         const res = await fetch('/api/generate', { method: 'POST', body: formData })
@@ -176,13 +177,13 @@ export default function Home() {
         a.href = url; a.download = `${level}_Worksheet.${fmt}`; a.click()
         URL.revokeObjectURL(url)
       }
-      saveToHistory({ id: Date.now(), date: new Date().toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }), level, difficulty, extra, includeAnswers, layout, queue })
+      saveToHistory({ id: Date.now(), date: new Date().toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }), level, extra, includeAnswers, layout, queue })
       setStatus('✓ Done! Both files downloaded.')
     } catch (e) { setError(e.message); setStatus('') }
     setLoading(false)
   }
 
-  const diffLabel = { 'easy':'Easy only','mixed-easy':'Mostly easy','mixed':'Even mix','mixed-hard':'Mostly hard','hard':'Hard only' }
+  const diffLabelShort = { 'easy':'Easy','mixed-easy':'Mostly easy','mixed':'Even mix','mixed-hard':'Mostly hard','hard':'Hard' }
 
   const LayoutPreview = ({ val }) => {
     if (val === 'compact') return (
@@ -214,7 +215,7 @@ export default function Home() {
         <div className="flex items-start justify-between mb-8">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Math Worksheet Generator</h1>
-            <p className="text-sm text-gray-500 mt-1">Build your question queue, set counts, download as Word or PDF.</p>
+            <p className="text-sm text-gray-500 mt-1">Build your question queue, set counts per topic, download as Word or PDF.</p>
           </div>
           <button onClick={() => setShowHistory(!showHistory)}
             className="relative flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white hover:bg-gray-50 text-gray-600">
@@ -245,8 +246,6 @@ export default function Home() {
                           <span className="text-xs text-gray-400">{entry.level}</span>
                           <span className="text-xs text-gray-300">·</span>
                           <span className="text-xs text-gray-400">{entry.queue?.reduce((s,q) => s+(parseInt(q.count)||0), 0)} Qs</span>
-                          <span className="text-xs text-gray-300">·</span>
-                          <span className="text-xs text-gray-400">{diffLabel[entry.difficulty]}</span>
                           {entry.includeAnswers && <span className="text-xs bg-green-100 text-green-600 px-1.5 py-0.5 rounded-full">+ Answers</span>}
                         </div>
                       </div>
@@ -269,19 +268,6 @@ export default function Home() {
                 <button key={l.val} onClick={() => setLevel(l.val)}
                   className={`py-4 rounded-xl border-2 font-bold text-lg transition-all ${level === l.val ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-400 hover:border-gray-400 hover:text-gray-600'}`}>
                   {l.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Difficulty */}
-          <div>
-            <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">Difficulty Mix</label>
-            <div className="flex flex-wrap gap-2">
-              {DIFFICULTY_OPTIONS.map(d => (
-                <button key={d.val} onClick={() => setDifficulty(d.val)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${difficulty === d.val ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}`}>
-                  {d.label}
                 </button>
               ))}
             </div>
@@ -338,7 +324,7 @@ export default function Home() {
                     <div className="bg-yellow-50 rounded-xl p-3 mb-3 border border-yellow-200">
                       <p className="text-xs text-yellow-700 mb-2">Describe what you want:</p>
                       <textarea value={customText} onChange={e => setCustomText(e.target.value)}
-                        placeholder="e.g. Quotient Rule with surds in numerator, requiring simplification..."
+                        placeholder="e.g. Quotient Rule with surds in numerator..."
                         rows={2}
                         className="w-full border border-yellow-300 rounded-lg px-3 py-2 text-sm text-gray-800 focus:outline-none resize-none bg-white mb-2" />
                       <button onClick={addCustomToQueue}
@@ -350,27 +336,45 @@ export default function Home() {
 
                   {/* Queue list */}
                   {queue.length > 0 ? (
-                    <div className="space-y-2 border-t border-gray-100 pt-3">
+                    <div className="space-y-3 border-t border-gray-100 pt-3">
                       {queue.map((item) => (
-                        <div key={item.id} className="flex items-center gap-3 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2.5">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-gray-800 truncate">
-                              {item.topic === '__custom__' ? '✏️ Custom' : item.topic}
-                            </p>
-                            <p className="text-xs text-blue-600 truncate">
-                              {item.topic === '__custom__' ? item.desc : item.subtopic}
-                            </p>
+                        <div key={item.id} className="bg-gray-50 border border-gray-100 rounded-xl p-3">
+                          {/* Header row */}
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-gray-800 truncate">
+                                {item.topic === '__custom__' ? '✏️ Custom' : item.topic}
+                              </p>
+                              <p className="text-xs text-blue-600 truncate">
+                                {item.topic === '__custom__' ? item.desc : item.subtopic}
+                              </p>
+                            </div>
+                            <button onClick={() => removeFromQueue(item.id)}
+                              className="text-gray-300 hover:text-red-400 text-xl leading-none shrink-0 ml-2">×</button>
                           </div>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <span className="text-xs text-gray-400">Qs:</span>
-                            <input type="number" min={1} max={20} value={item.count}
-                              onChange={e => updateQueueCount(item.id, e.target.value)}
-                              className="w-12 border border-gray-200 rounded-lg px-1.5 py-1 text-sm text-center focus:outline-none focus:border-gray-400" />
+
+                          {/* Count + Difficulty row */}
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs text-gray-500">Qs:</span>
+                              <input type="number" min={1} max={20} value={item.count}
+                                onChange={e => updateQueueItem(item.id, 'count', parseInt(e.target.value) || 1)}
+                                className="w-12 border border-gray-200 rounded-lg px-1.5 py-1 text-sm text-center focus:outline-none focus:border-gray-400" />
+                            </div>
+                            <div className="flex items-center gap-1 flex-wrap">
+                              <span className="text-xs text-gray-500 mr-0.5">Difficulty:</span>
+                              {DIFFICULTY_OPTIONS.map(d => (
+                                <button key={d.val} onClick={() => updateQueueItem(item.id, 'difficulty', d.val)}
+                                  className={`px-2 py-0.5 rounded-full text-xs border transition-all ${item.difficulty === d.val ? 'bg-blue-50 text-blue-700 border-blue-200 font-medium' : 'bg-white text-gray-400 border-gray-200 hover:bg-gray-50'}`}>
+                                  {d.label}
+                                </button>
+                              ))}
+                            </div>
                           </div>
-                          <button onClick={() => removeFromQueue(item.id)}
-                            className="text-gray-300 hover:text-red-400 text-xl leading-none shrink-0">×</button>
                         </div>
                       ))}
+
+                      {/* Total summary */}
                       <div className="flex items-center justify-between bg-blue-50 rounded-xl px-3 py-2">
                         <span className="text-xs text-blue-600">Total questions</span>
                         <span className="text-sm font-bold text-blue-700">{totalQuestions} across {queue.length} section{queue.length !== 1 ? 's' : ''}</span>
