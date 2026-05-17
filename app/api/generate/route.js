@@ -26,7 +26,6 @@ export async function POST(req) {
   try {
     const formData = await req.formData()
     const level = formData.get('level') || 'Amath'
-    const difficulty = formData.get('difficulty') || 'mixed'
     const extra = formData.get('extra') || ''
     const includeAnswers = formData.get('includeAnswers') === 'true'
     const format = formData.get('format') || 'docx'
@@ -53,10 +52,11 @@ export async function POST(req) {
     let questionNumber = 1
 
     for (const item of queue) {
-      const { topic, subtopic, desc, imageUrl, count } = item
+      const { topic, subtopic, desc, imageUrl, count, difficulty } = item
       const isCustom = topic === '__custom__'
       const sectionTitle = isCustom ? 'Custom' : (subtopic && subtopic !== 'Any subtopic' ? `${topic} — ${subtopic}` : topic)
       const description = isCustom ? desc : (subtopic && subtopic !== 'Any subtopic' ? desc : topic)
+      const difficultyLabel = DIFFICULTY_LABELS[difficulty] || DIFFICULTY_LABELS['mixed-easy']
 
       const messageContent = []
 
@@ -82,7 +82,7 @@ export async function POST(req) {
 
 Generate exactly ${count} numbered math practice questions about: ${description}.
 Start numbering from ${questionNumber}.
-Difficulty: ${DIFFICULTY_LABELS[difficulty] || 'even mix'}.
+Difficulty: ${difficultyLabel}.
 ${extra ? `Extra instructions: ${extra}` : ''}
 ${messageContent.some(m => m.type === 'image') ? 'A sample image has been provided. Use it to understand the style and format required.' : ''}
 
@@ -112,9 +112,17 @@ OUTPUT FORMAT — Markdown with LaTeX math:
       questionNumber += parseInt(count)
     }
 
+    // Build markdown — compact uses no section separators, others use ##
     let questionsMarkdown = `# ${level}\n\n`
-    for (const section of allSections) {
-      questionsMarkdown += `## ${section.title}\n\n${section.questions}\n\n`
+    if (layout === 'compact') {
+      // Compact: just flow all questions together with a bold section label inline
+      for (const section of allSections) {
+        questionsMarkdown += `**${section.title}**\n\n${section.questions}\n\n`
+      }
+    } else {
+      for (const section of allSections) {
+        questionsMarkdown += `## ${section.title}\n\n${section.questions}\n\n`
+      }
     }
 
     let answersMarkdown = ''
@@ -141,16 +149,13 @@ Output ONLY the numbered answers, one per line, no preamble.`,
     const pyPath = join(tmpdir(), `fix_${id}.py`)
 
     if (format === 'pdf') {
-      // Inject layout into markdown for PDF
       let pdfMarkdown = questionsMarkdown
       if (layout !== 'compact' && allSections.length > 0) {
         let pdfLines = ''
         for (let s = 0; s < allSections.length; s++) {
           const section = allSections[s]
-          // Add page break before every section except the first
           if (s > 0) pdfLines += '\n\n\\newpage\n\n'
           pdfLines += `## ${section.title}\n\n`
-          // Split questions and inject layout breaks
           const qLines = section.questions.split('\n')
           let secQIdx = 0
           let buf = ''
@@ -245,7 +250,11 @@ def inject_layout(content, layout):
     rebuilt = list(paras)
     offset = 0
 
-    # Step 1: always page break before each Heading2 except the first
+    if layout == 'compact':
+        new_body = ''.join(rebuilt)
+        return re.sub(r'<w:body>.*</w:body>', f'<w:body>{new_body}</w:body>', content, flags=re.DOTALL)
+
+    # Non-compact: page break before each Heading2 except first
     heading2_indices = [i for i, p in enumerate(paras) if is_heading2(p)]
     for idx, hi in enumerate(heading2_indices):
         if idx == 0:
@@ -254,11 +263,7 @@ def inject_layout(content, layout):
         rebuilt.insert(adjusted, PAGE_BREAK)
         offset += 1
 
-    if layout == 'compact':
-        new_body = ''.join(rebuilt)
-        return re.sub(r'<w:body>.*</w:body>', f'<w:body>{new_body}</w:body>', content, flags=re.DOTALL)
-
-    # Step 2: within each section apply 1pp or 2pp layout
+    # Apply per-page layout within each section
     i = 0
     sec_q_idx = 0
     while i < len(rebuilt):
